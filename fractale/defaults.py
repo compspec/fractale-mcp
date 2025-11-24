@@ -1,0 +1,1 @@
+fractale_dir = ".fractale"
