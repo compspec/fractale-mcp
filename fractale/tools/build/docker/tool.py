@@ -1,24 +1,21 @@
 from fractale.tools.base import BaseTool
 from fractale.tools.decorator import mcp
+import fractale.tools.build.docker.prompts as prompts
 import fractale.agent.logger as logger
 import fractale.utils as utils
 import shutil
 import re
 import os
-import sys
 import shutil
 import tempfile
 import subprocess
-import textwrap
+import shlex
 
 from rich import print
 from rich.syntax import Syntax
 
-name = "docker-build"
-
 
 class DockerBuildTool(BaseTool):
-
     def setup(self):
         """
         Setup ensures we have docker or podman installed.
@@ -28,6 +25,29 @@ class DockerBuildTool(BaseTool):
             self.docker = shutil.which("podman")
         if not self.docker:
             raise ValueError("docker and podman are not present on the system.")
+
+    # @mcp.tool(name="docker-run")
+    def run_container(self, uri: str, command: str):
+        """
+        Run a docker container. Accepts an optional unique resource identifier (URI).
+
+        uri: the unique resource identifier.
+        command: string to run (will be shlex split)
+        """
+        # Prepare command to push (docker or podman)
+        command = [self.docker, "run", "-it", uri] + shlex.split(command)
+        logger.info(f"Running {command}...")
+        p = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if p.returncode != 0:
+            output = "ERROR: " + p.stdout + p.stderr
+            logger.warning(f"Issue with docker run: {output}")
+            return logger.failure(output)
+        return logger.success(output)
 
     @mcp.tool(name="docker-push")
     def push_container(self, uri: str, all_tags: bool = False):
@@ -59,7 +79,7 @@ class DockerBuildTool(BaseTool):
             return logger.failure(output)
         return logger.success(output)
 
-    @mcp.tool(name=name)
+    @mcp.tool(name="docker-build")
     def build_container(self, dockerfile: str, uri: str, platforms: str = None):
         """
         Build a docker container. Accepts an optional unique resource identifier (URI).
@@ -134,7 +154,7 @@ class DockerBuildTool(BaseTool):
         # Try to match lines that start with #<number>
         return "\n".join([x for x in output.split("\n") if not re.search(r"^#(\d)+ ", x)])
 
-    @mcp.tool(name="kind-docker-load")
+    # @mcp.tool(name="kind-docker-load")
     def load_kind(self, uri: str):
         """
         Load a Docker URI into Kind (Kubernetes in Docker)
@@ -166,3 +186,37 @@ class DockerBuildTool(BaseTool):
         logger.custom(
             highlighted_syntax, title="Final Dockerfile", border_style="green", expand=True
         )
+
+    @mcp.prompt(name="docker-build-persona", description="Instructions for a fresh build")
+    def build_persona_prompt(self, application: str, environment: str = "CPU") -> dict:
+        """
+        Generates agent instructions for creating a NEW Dockerfile.
+        """
+        # Specific rules for a fresh build
+        build_rules = [
+            "The Dockerfile content you generate must be complete and robust.",
+            "The response should ONLY contain the complete Dockerfile.",
+            "Use the available tools (files-write) to save the Dockerfile to disk.",
+        ] + prompts.COMMON_INSTRUCTIONS
+
+        # Construct the text from our template
+        prompt_text = prompts.get_build_prompt(application, environment, build_rules)
+
+        # Return MCP format
+        return {"messages": [{"role": "user", "content": {"type": "text", "text": prompt_text}}]}
+
+    @mcp.prompt(
+        name="docker-fix-persona", description="Instructions for fixing or retrying a build"
+    )
+    def fix_persona_prompt(self, error_message: str) -> dict:
+        """
+        Generates system instructions for retrying a failed build.
+        """
+        # 1. Define specific rules for fixing
+        fix_rules = [
+            "The response should only contain the complete, corrected Dockerfile content.",
+            "Use succinct comments in the Dockerfile to explain build logic and changes.",
+        ] + prompts.COMMON_INSTRUCTIONS
+
+        prompt_text = prompts.get_retry_prompt(fix_rules, error_message)
+        return {"messages": [{"role": "user", "content": {"type": "text", "text": prompt_text}}]}

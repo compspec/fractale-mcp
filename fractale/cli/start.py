@@ -31,8 +31,7 @@ def main(args, extra, **kwargs):
     print(f"🔌 Loading tools... ")
 
     # Load into the manager (tools, resources, prompts)
-    for tool in manager.load_tools(args.tools):
-        mcp.add_tool(tool)
+    for tool in manager.load_tools(mcp, args.tools):
         print(f"   ✅ Registered: {tool.name}")
 
     # Mount the MCP server. Note from V: we can use mount with antother FastMCP
@@ -50,4 +49,4 @@ def main(args, extra, **kwargs):
 
     # For testing we usually control+C, let's not make it ugly
     except KeyboardInterrupt:
-        print("🖥️ Shutting down...")
+        print("🖥️  Shutting down...")
