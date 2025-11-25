@@ -1,8 +1,4 @@
-import functools
-import time
 from typing import List
-
-from fractale.metrics import DurationMetric, metrics
 
 
 class McpProxy:
@@ -18,44 +14,12 @@ class McpProxy:
         """
 
         def decorator(func):
-
-            def record_timing(start_time, error=None):
-                """
-                Wrapper to record timing of tool.
-                """
-                end_time = time.perf_counter()
-                tool_id = name or func.__name__
-
-                # Create the specific Metric object
-                metric = DurationMetric(
-                    name=tool_id,
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration=end_time - start_time,
-                    success=(error is None),
-                    metadata={"error": str(error)} if error else {},
-                )
-
-                # Push to generic registry
-                metrics.record(metric)
-                return metric.duration
-
-            @functools.wraps(func)
-            def sync_wrapper(*args, **kwargs):
-                start = time.perf_counter()
-                result = func(*args, **kwargs)
-                dur = record_timing(start)
-                # Add the duration to the result for the LLM
-                result += f"\n\n[⏱️ {dur:.2f}s]"
-                return result
-
-            wrapper = sync_wrapper
             default_name = (func.__module__.lower() + "-" + func.__name__.lower()).replace(".", "-")
-            wrapper._mcp_name = name or default_name
-            wrapper._mcp_desc = description
-            wrapper._mcp_tags = tags
-            wrapper._is_mcp_tool = True
-            return wrapper
+            func._mcp_name = name or default_name
+            func._mcp_desc = description
+            func._mcp_tags = tags
+            func._is_mcp_tool = True
+            return func
 
         return decorator
 

@@ -51,6 +51,7 @@ Tools to add:
 Start the server in one terminal. Export `FRACTALE_MCP_TOKEN` if you want to require simple token auth. Here is for http.
 
 ```bash
+export FRACTALE_TOKEN_AUTH=dudewheresmycar
 fractale start --transport http --port 8089
 ```
 
@@ -64,22 +65,30 @@ curl -s http://0.0.0.0:8089/health  | jq
 python3 examples/mcp/test_echo.py
 ```
 
-TODO:
-
- - we will want to keep track of state (retries, etc.) for agents somewhere.
-
 ### Agents
 
-**Not written yet**
-
 The `fractale agent` command provides means to run build, job generation, and deployment agents.
-This part of the library is under development. There are three kinds of agents:
+In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test
+doing a build:
 
- - `step` agents are experts on doing specific tasks (do hold state)
+```bash
+# In both terminals
+export FRACTALE_MCP_TOKEN=dude
+
+# In one terminal (start MCP)
+fractale start -t http --port 8089
+
+# In the other, run the plan
+fractale agent ./examples/plans/docker-build-lammps.yaml
+```
+
+
  - `manager` agents know how to orchestrate step agents and choose between them (don't hold state, but could)
- - `helper` agents are used by step agents to do small tasks (e.g., suggest a fix for an error)
+ - `step` agents are experts on doing specific tasks. This originally was an agent with specific functions to do something (e.g., docker build) and now is a generic MCP agent with a prompt that gives it context and a goal.
 
-The design is simple in that each agent is responding to state of error vs. success. In the [first version]() of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. In the case of a step agent, the return code determines to continue or try again. In the case of a helper, the input is typically an erroneous response (or something that needs changing) with respect to a goal. For a manager, we are making a choice based on a previous erroneous step.
+The initial design of `helper` agents from the first fractale is subsumed by the idea of an MCP function. A helper agent _is_ an MCP tool.
+
+The design is simple in that each agent is responding to state of error vs. success. In the [first version](https://github.com/compspec/fractale) of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. It has the same top level design with a manager, but each step agent is like a small state machine governmed by an LLM with access to MCP tools and resources.
 
 See [examples/agent](examples/agent) for an example, along with observations, research questions, ideas, and experiment brainstorming!
 
@@ -95,6 +104,33 @@ Here are a few design choices (subject to change, of course). I am starting with
 - We are using mcp.run, but could also use mcp.run_async
 - The backend of FastMCP is essentially starlette, so we define (and add) other routes to the server.
 
+
+### Job Specifications
+
+#### Simple
+
+We provide a simple translation layer between job specifications. We take the assumption that although each manager has many options, the actual options a user would use is a much smaller set, and it's relatively straight forward to translate (and have better accuracy).
+
+See [examples/transform](examples/transform) for an example.
+
+#### Complex
+
+We want to:
+
+1. Generate software graphs for some cluster (fluxion JGF) (this is done with [compspec](https://github.com/compspec/compspec)
+2. Register N clusters to a tool (should be written as a python module)
+3. Tool would have ability to select clusters from resources known, return
+4. Need graphical representation (json) of each cluster - this will be used with the LLM inference
+
+See [examples/fractale](examples/fractale) for a detailed walk-through of the above.
+
+For graph tool:
+
+```bash
+conda install -c conda-forge graph-tool
+```
+
+<!-- ⭐️ [Documentation](https://compspec.github.io/fractale) ⭐️ -->
 
 ## License
 

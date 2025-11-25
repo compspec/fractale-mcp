@@ -1,0 +1,14 @@
+name: "LAMMPS Pipeline"
+
+plan:
+  - name: "build"
+    prompt: "docker-build-persona"
+    inputs:
+      description: "LAMMPS (Large-scale Atomic/Molecular Massively Parallel Simulator)"
+      container: "ghcr.io/hpc-lab/lammps:cpu-latest"
+      environment: "Rocky Linux 9, CPU Only"
+
+#  - name: "deploy"
+#    prompt: "k8s-deploy-persona"
+#    inputs:
+#      replicas: 4

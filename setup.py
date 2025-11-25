@@ -67,6 +67,8 @@ if __name__ == "__main__":
     TESTS_REQUIRES = get_reqs(lookup, "TESTS_REQUIRES")
     INSTALL_REQUIRES_ALL = get_reqs(lookup, "INSTALL_REQUIRES_ALL")
     GOOGLE_REQUIRES = get_reqs(lookup, "GOOGLE_REQUIRES")
+    OPENAI_REQUIRES = get_reqs(lookup, "OPENAI_REQUIRES")
+    LLAMA_REQUIRES = get_reqs(lookup, "OPENAI_REQUIRES")
 
     setup(
         name=NAME,
@@ -89,6 +91,8 @@ if __name__ == "__main__":
         extras_require={
             "all": [INSTALL_REQUIRES_ALL],
             "google": [GOOGLE_REQUIRES],
+            "openai": [OPENAI_REQUIRES],
+            "llama": [LLAMA_REQUIRES],
         },
         classifiers=[
             "Intended Audience :: Science/Research",

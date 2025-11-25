@@ -10,8 +10,6 @@ from rich.traceback import install
 install()
 
 import fractale
-import fractale.agent.parser as parsers
-import fractale.defaults as defaults
 from fractale.logger import setup_logger
 
 
@@ -94,23 +92,9 @@ def get_parser():
         formatter_class=argparse.RawTextHelpFormatter,
         description="run an agent",
     )
-    agents = agent.add_subparsers(
-        title="agent",
-        description="Run an agent",
-    )
     agent.add_argument(
-        "--plan",
-        "-p",
-        dest="plan",
+        "plan",
         help="provide a plan to a manager",
-    )
-    # If exists, we will attempt to load and use.
-    agent.add_argument(
-        "--use-cache",
-        dest="use_cache",
-        help="Use (load and save) local cache in pwd/.fractale/<step>",
-        action="store_true",
-        default=False,
     )
     agent.add_argument(
         "--max-attempts",
@@ -128,9 +112,6 @@ def get_parser():
         action="store_true",
         default=False,
     )
-
-    # Add agent parsers
-    parsers.register(agents)
     return parser
 
 

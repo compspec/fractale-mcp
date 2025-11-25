@@ -61,7 +61,7 @@ class ToolManager:
             discovered[tool_id] = {"path": file_path, "module": import_path, "root": root_path}
         return discovered
 
-    def load_tools(self, names=None):
+    def load_tools(self, mcp, names=None):
         """
         Load a set of named tools, or default to all those discovered.
         """
@@ -95,7 +95,22 @@ class ToolManager:
 
                 # Get the decorated functions
                 for func in getfunc():
-                    yield ToolClass.from_function(func, name=func._mcp_name)
+
+                    # This is how we handle dynamic loading
+                    endpoint = ToolClass.from_function(func, name=func._mcp_name)
+
+                    # @mcp.tool
+                    if ToolClass == Tool:
+                        mcp.add_tool(endpoint)
+
+                    # @mcp.prompt
+                    elif ToolClass == Prompt:
+                        mcp.add_prompt(endpoint)
+
+                    # @mcp.resource
+                    else:
+                        mcp.add_resource(endpoint)
+                    yield endpoint
 
     def load_tool(self, tool_id: str) -> BaseTool:
         """
@@ -122,3 +137,42 @@ class ToolManager:
         except ImportError as e:
             print(f"❌ Error importing {tool_id}: {e}")
             return None
+
+    def get_available_prompts(self):
+        """
+        Scans all discoverable tools for functions decorated with @mcp.prompt.
+        Returns a set of prompt names (personas). We need this to validate a plan.
+        A plan is not valid if it names a persona (prompt) that is not known.
+        """
+        print("GET AVAILABLE PROMPTS")
+        import IPython
+
+        IPython.embed()
+
+        prompts = set()
+
+        # 2. Load them (to execute decorators)
+        for tool_id, path in self.tools.items():
+            mod = self.load_tool_module(tool_id, path)
+            if not mod:
+                continue
+
+            # 3. Inspect the classes/functions in the module
+            for name, obj in inspect.getmembers(mod):
+                # We usually look for classes inheriting from BaseTool
+                # But we can also just scan the class attributes
+                if inspect.isclass(obj):
+                    for attr_name in dir(obj):
+                        try:
+                            func = getattr(obj, attr_name)
+                        except:
+                            continue
+
+                        # CHECK FOR PROXY TAG
+                        if callable(func) and getattr(func, "_is_mcp_prompt", False):
+                            # Get the name from the decorator
+                            p_name = getattr(func, "_mcp_name", None)
+                            if p_name:
+                                prompts.add(p_name)
+
+        return prompts

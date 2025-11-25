@@ -9,20 +9,20 @@ LICENSE = "LICENSE"
 
 
 ################################################################################
-# Global requirements
+# TODO vsoch: refactor this to use newer pyproject stuff.
 
-# Note that the spack / environment modules plugins are installed automatically.
-# This doesn't need to be the case.
 INSTALL_REQUIRES = (
     ("jsonschema", {"min_version": None}),
     ("Jinja2", {"min_version": None}),
     ("uvicorn", {"min_version": None}),
     ("mcp", {"min_version": None}),
     ("fastmcp", {"min_version": None}),
+    ("fastapi", {"min_version": None}),
     # Yeah, probably overkill, just being used for printing the scripts
     ("rich", {"min_version": None}),
 )
 
+OPENAI_REQUIRES = (("openai", {"min_version": None}),)
 GOOGLE_REQUIRES = (("google-generativeai", {"min_version": None}),)
 TESTS_REQUIRES = (("pytest", {"min_version": "4.6.2"}),)
-INSTALL_REQUIRES_ALL = INSTALL_REQUIRES + TESTS_REQUIRES + GOOGLE_REQUIRES
+INSTALL_REQUIRES_ALL = INSTALL_REQUIRES + TESTS_REQUIRES + GOOGLE_REQUIRES + OPENAI_REQUIRES
