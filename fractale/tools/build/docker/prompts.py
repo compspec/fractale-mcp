@@ -2,18 +2,16 @@ from fractale.tools.prompts import format_rules
 
 PERSONA = "You are a Dockerfile build expert."
 
-CONTEXT = """
-We are running experiments that deploy containerized HPC applications.
-You are the agent responsible for the build step in that pipeline.
-"""
+CONTEXT = """We are running experiments that deploy containerized HPC applications.
+You are the agent responsible for the build step in that pipeline."""
 
 REQUIRES = [
     "You MUST NOT change the name of the application container image provided.",
     "Don't worry about users/permissions - just be root.",
     "DO NOT forget to install certificates and you MUST NOT apt-get purge.",
     "Assume a default of CPU if GPU or CPU is not stated.",
-    "Do NOT do a multi-stage build, and do NOT COPY or ADD anything.",
-    "You MUST COPY executables to a system location to be on the PATH. Do NOT symlink",
+    "Do NOT do a multi-stage build, and do NOT COPY or ADD anything from the host.",
+    "You MUST copy executables to a system location to be on the PATH. Do NOT symlink",
     "You are only scoped to edit a Dockerfile to build the image.",
 ]
 
@@ -37,7 +35,10 @@ def get_build_text(application, environment, build_rules):
 ### GOAL
 I need to create a Dockerfile for an application '{application}'.
 The target environment is '{environment}'.
-Please generate a robust, production-ready Dockerfile.
+You MUST generate a response with a robust "dockerfile" that loads into a Python dictionary.
+You MUST NOT include other text or thinking with your response.
+You do NOT need to write the Dockerfile to disk, but rather provide to the build tool to handle.
+You MUST return a JSON response with a "dockerfile" field.
 
 ### REQUIREMENTS & CONSTRAINTS
 You must adhere to these rules strictly:
@@ -45,8 +46,7 @@ You must adhere to these rules strictly:
 
 ### INSTRUCTIONS
 1. Analyze the requirements and generate the Dockerfile content.
-2. Use provided tools to build the image.
-3. Respond appropriately to errors.
+2. Return a json structure with a "dockerfile"
 """
 
 

@@ -43,13 +43,9 @@ class DockerBuildTool(BaseTool):
             text=True,
             check=False,
         )
-        if p.returncode != 0:
-            output = "ERROR: " + p.stdout + p.stderr
-            logger.warning(f"Issue with docker run: {output}")
-            return logger.failure(output)
-        return logger.success(output)
+        return Result(p).render()
 
-    @mcp.tool(name="docker-push")
+    @mcp.tool(name="docker_push")
     def push_container(self, uri: str, all_tags: bool = False):
         """
         Push a docker container. Accepts an optional unique resource identifier (URI).
@@ -73,14 +69,10 @@ class DockerBuildTool(BaseTool):
             text=True,
             check=False,
         )
-        if p.returncode != 0:
-            output = "ERROR: " + p.stdout + p.stderr
-            logger.warning(f"Issue with docker push: {output}")
-            return logger.failure(output)
-        return logger.success(output)
+        return Result(p).render()
 
-    @mcp.tool(name="docker-build")
-    def build_container(self, dockerfile: str, uri: str, platforms: str = None):
+    @mcp.tool(name="docker_build")
+    def build_container(self, dockerfile: str, uri: str = "lammps", platforms: str = None):
         """
         Build a docker container. Accepts an optional unique resource identifier (URI).
         The build is always done in a protected temporary directory.
@@ -91,8 +83,6 @@ class DockerBuildTool(BaseTool):
         push: push to the registry. Requires that the docker agent is authenticated.
         load: load into a kubernetes in docker (kind) cluster.
         """
-        # TODO need a way for agent to keep track of retries. Context session id could work as key
-
         # This ensures that we aren't given a code block, etc.
         pattern = "```(?:docker|dockerfile)?\n(.*?)```"
         match = re.search(pattern, dockerfile, re.DOTALL)
@@ -129,11 +119,11 @@ class DockerBuildTool(BaseTool):
         # Clean up after we finish
         shutil.rmtree(build_dir, ignore_errors=True)
         output = logger.success(p.stdout + p.stderr)
-        output = self.filter_output(output)
 
-        if p.returncode == 0:
-            return logger.success(output)
-        return logger.failed(output)
+        # Streamline (filter) output and return result object
+        p.stdout = output = self.filter_output(output)
+        p.stderr = None
+        return Result(p).render()
 
     def filter_output(self, output):
         """
@@ -154,7 +144,7 @@ class DockerBuildTool(BaseTool):
         # Try to match lines that start with #<number>
         return "\n".join([x for x in output.split("\n") if not re.search(r"^#(\d)+ ", x)])
 
-    # @mcp.tool(name="kind-docker-load")
+    @mcp.tool(name="kind_docker_load")
     def load_kind(self, uri: str):
         """
         Load a Docker URI into Kind (Kubernetes in Docker)
@@ -172,11 +162,7 @@ class DockerBuildTool(BaseTool):
             text=True,
             check=False,
         )
-        if p.returncode != 0:
-            output = p.stdout + p.stderr
-            logger.warning(f"Issue with kind load: {output}")
-            return logger.failure(output)
-        return logger.success(output)
+        return Result(p).render()
 
     def print_result(self, dockerfile):
         """
@@ -187,7 +173,7 @@ class DockerBuildTool(BaseTool):
             highlighted_syntax, title="Final Dockerfile", border_style="green", expand=True
         )
 
-    @mcp.prompt(name="docker-build-persona", description="Instructions for a fresh build")
+    @mcp.prompt(name="docker_build_persona", description="Instructions for a fresh build")
     def build_persona_prompt(self, application: str, environment: str = "CPU") -> dict:
         """
         Generates agent instructions for creating a NEW Dockerfile.
@@ -200,13 +186,13 @@ class DockerBuildTool(BaseTool):
         ] + prompts.COMMON_INSTRUCTIONS
 
         # Construct the text from our template
-        prompt_text = prompts.get_build_prompt(application, environment, build_rules)
+        prompt_text = prompts.get_build_text(application, environment, build_rules)
 
         # Return MCP format
         return {"messages": [{"role": "user", "content": {"type": "text", "text": prompt_text}}]}
 
     @mcp.prompt(
-        name="docker-fix-persona", description="Instructions for fixing or retrying a build"
+        name="docker_fix_persona", description="Instructions for fixing or retrying a build"
     )
     def fix_persona_prompt(self, error_message: str) -> dict:
         """

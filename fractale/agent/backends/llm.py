@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
@@ -14,8 +15,19 @@ class LLMBackend(ABC):
         """
         pass
 
+    def ensure_json(self, response):
+        """
+        Require an LLM to return json.
+        """
+        while True:
+            try:
+                return json.loads(response)
+            except Exception as e:
+                prompt = f"Your response {response} was not valid json: {e}"
+                response, _, _ = self.backend.generate_response(prompt=prompt)
+
     @abstractmethod
-    async def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
         """
         Returns a text_response, tool_calls
         """

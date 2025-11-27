@@ -46,6 +46,16 @@ Tools to add:
  - build
    - docker
 
+### Environment
+
+The following variables can be set in the environment.
+
+| Name | Description | Default       |
+|-------|------------|---------------|
+| `FRACTALE_MCP_PORT` | Port to run MCP server on, if using http variant | 8089 |
+| `FRACTALE_MCP_TOKEN` | Token to use for testing | unset |
+| `FRACTALE_LLM_PROVIDER` | LLM Backend to use (gemini, openai, llama) | gemini |
+
 ### Testing
 
 Start the server in one terminal. Export `FRACTALE_MCP_TOKEN` if you want to require simple token auth. Here is for http.
@@ -78,21 +88,28 @@ export FRACTALE_MCP_TOKEN=dude
 # In one terminal (start MCP)
 fractale start -t http --port 8089
 
+# Define the model (provider and endpoints) to use.
+export FRACTALE_LLM_PROVIDER=openai
+export OPENAI_API_KEY=xxxxxxxxxxxxxxxx
+export OPENAI_BASE_URL=https://my.custom.url/v1
+
 # In the other, run the plan
 fractale agent ./examples/plans/docker-build-lammps.yaml
 ```
-
 
  - `manager` agents know how to orchestrate step agents and choose between them (don't hold state, but could)
  - `step` agents are experts on doing specific tasks. This originally was an agent with specific functions to do something (e.g., docker build) and now is a generic MCP agent with a prompt that gives it context and a goal.
 
 The initial design of `helper` agents from the first fractale is subsumed by the idea of an MCP function. A helper agent _is_ an MCP tool.
 
-The design is simple in that each agent is responding to state of error vs. success. In the [first version](https://github.com/compspec/fractale) of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. It has the same top level design with a manager, but each step agent is like a small state machine governmed by an LLM with access to MCP tools and resources.
+The design is simple in that each agent is responding to state of error vs. success. In the [first version](https://github.com/compspec/fractale) of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. It has the same top level design with a manager, but each step agent is like a small state machine governed by an LLM with access to MCP tools and resources.
 
 See [examples/agent](examples/agent) for an example, along with observations, research questions, ideas, and experiment brainstorming!
 
-TODO refactor examples.
+#### TODO
+
+- refactor examples
+- debug why the startup is so slow.
 
 ### Design Choices
 

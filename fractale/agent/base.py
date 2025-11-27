@@ -4,19 +4,27 @@ import time
 from typing import Any, Dict
 
 from fractale.logger import logger
+from fractale.ui.adapters.cli import CLIAdapter
 
 
 class Agent:
     """
-    Base Agent infrastructure.
+    Base Agent Infrastructure.
+    Handles caching, retry counters, metadata logging, and error wrappers.
+    Does NOT know about MCP or LLMs.
     """
+
+    # Variables to clear on retry
+    state_variables = ["result", "error_message"]
 
     def __init__(
         self,
         name: str = "agent",
+        use_cache: bool = False,
         results_dir: str = None,
         save_incremental: bool = False,
         max_attempts: int = None,
+        ui=None,
     ):
         self.name = name
         self.attempts = 0
@@ -24,10 +32,11 @@ class Agent:
 
         self.results_dir = results_dir or os.getcwd()
         self.save_incremental = save_incremental
-        self.init_metadata()
 
-        # Called by subclass for its specific setup
+        # Initialize Metadata tracking
+        self.init_metadata()
         self.init()
+        self.ui = ui or CLIAdapter()
 
     def init(self):
         """
@@ -46,20 +55,18 @@ class Agent:
             "llm_usage": [],
         }
 
-    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, context, step):
         """
         Main execution wrapper
         """
         # Ensure max_attempts is set
         context["max_attempts"] = self.max_attempts or context.get("max_attempts")
-
-        # 3. RUN STEP
         logger.info(f"▶️  Running {self.name}...")
         start_time = time.time()
 
         try:
             # Call abstract method
-            context = self.run_step(context)
+            context = self.run_step(context, step)
 
         finally:
             duration = time.time() - start_time
@@ -67,7 +74,7 @@ class Agent:
 
         return context
 
-    def run_step(self, context):
+    def run_step(self, context, step):
         """
         Abstract: Implemented by MCPAgent
         """

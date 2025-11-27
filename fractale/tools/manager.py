@@ -144,11 +144,6 @@ class ToolManager:
         Returns a set of prompt names (personas). We need this to validate a plan.
         A plan is not valid if it names a persona (prompt) that is not known.
         """
-        print("GET AVAILABLE PROMPTS")
-        import IPython
-
-        IPython.embed()
-
         prompts = set()
 
         # 2. Load them (to execute decorators)

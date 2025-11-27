@@ -10,6 +10,31 @@ from contextlib import contextmanager
 import yaml
 
 
+def run_sync(coroutine):
+    """
+    Runs an async coroutine synchronously.
+    Patches the loop if running inside IPython/Jupyter.
+
+    Note that I'm not currently using this - keeping here if need.
+    """
+    import asyncio
+
+    import nest_asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We aren't in async -> patch it
+        nest_asyncio.apply(loop)
+        return loop.run_until_complete(coroutine)
+    else:
+        # We are in standard Python script -> Standard run
+        return asyncio.run(coroutine)
+
+
 def get_local_cluster():
     """
     Guess the local cluster based on the hostname

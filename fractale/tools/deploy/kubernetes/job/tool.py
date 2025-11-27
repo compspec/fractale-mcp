@@ -20,7 +20,7 @@ class K8sJobTool(BaseTool):
     def setup(self):
         pass
 
-    @mcp.tool(name="kubernetes-status")
+    @mcp.tool(name="kubernetes_status")
     def get_status(self, job_id: str):
         """Checks job status."""
         return "Running"
