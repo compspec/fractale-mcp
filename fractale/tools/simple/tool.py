@@ -10,7 +10,7 @@ class EchoTool(BaseTool):
     def setup(self):
         pass
 
-    @mcp.tool(name="simple-echo")
+    @mcp.tool(name="simple_echo")
     def echo(self, message: str):
         """Echo the message back (return it)"""
         return message

@@ -1,11 +1,15 @@
 import asyncio
+import json
 import os
 import time
 
+import httpx
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from rich import print
 
 import fractale.agent.backends as backends
+import fractale.agent.defaults as defaults
 import fractale.agent.logger as logger
 from fractale.agent.base import Agent
 
@@ -17,18 +21,27 @@ class MCPAgent(Agent):
 
     def init(self):
         # 1. Setup MCP Client
-        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
+        port = os.environ.get("FRACTALE_MCP_PORT", defaults.mcp_port)
         token = os.environ.get("FRACTALE_MCP_TOKEN")
         url = f"http://localhost:{port}/mcp"
 
+        headers = None
         if token:
-            transport = StreamableHttpTransport(url=url, headers={"Authorization": token})
-            self.client = Client(transport)
-        else:
-            self.client = Client(url)
+            headers = headers = {"Authorization": token}
+        transport = StreamableHttpTransport(url=url, headers=headers)
+        self.client = Client(transport)
 
-        # 2. Select Backend based on Config/Env
+        # Initialize the provider. We will do this for each step.
+        self.init_provider()
+
+    def init_provider(self):
+        """
+        Initialize the provider.
+        """
+        # select Backend based on Config/Env first, then cached version
         provider = os.environ.get("FRACTALE_LLM_PROVIDER", "gemini").lower()
+
+        # Other envars come from provider backend
         if provider in backends.BACKENDS:
             self.backend = backends.BACKENDS[provider]()
         else:
@@ -52,77 +65,115 @@ class MCPAgent(Agent):
             tools = await self.client.list_tools()
         return tools
 
-    async def execute_mission_async(self, prompt_text: str):
+    async def execute(self, context, step):
         """
-        The Async Loop: Think -> Act -> Observe -> Think
+        The Async Loop that will start with a prompt name, retrieve it,
+        and then respond to it until the state is successful.
         """
         start_time = time.perf_counter()
 
-        # 1. Connect & Discover Tools
+        # We keep the client connection open for the duration of the step
         async with self.client:
-            mcp_tools = await self.client.list_tools()
 
-            # 2. Initialize Backend with these tools
+            # These are tools available to agent
+            # TODO need to filter these to be agent specific?
+            mcp_tools = await self.client.list_tools()
             await self.backend.initialize(mcp_tools)
 
-            # 3. Initial Prompt
-            # 'response_text' is what the LLM says to the user
-            # 'calls' is a list of tools it wants to run
-            response_text, calls = await self.backend.generate_response(prompt=prompt_text)
+            # Get prompt to give goal/task/personality to agent
+            args = getattr(context, "data", context)
 
-            max_loops = 15
-            loops = 0
+            # This partitions inputs, adding inputs from the step and separating
+            # those from extra
+            args, extra = step.partition_inputs(args)
+            instruction = await self.fetch_persona(step.prompt, args)
+            message = json.loads(instruction)["messages"][0]["content"]["text"]
+            self.ui.log(message)
 
-            while loops < max_loops:
-                loops += 1
+            # Run the loop up to some max attempts (internal state machine with MCP tools)
+            response_text = await self.run_llm_loop(instruction, step, context)
 
-                # If there are tool calls, we MUST execute them and feed back results
-                if calls:
-                    tool_outputs = []
-
-                    for call in calls:
-                        t_name = call["name"]
-                        t_args = call["args"]
-                        t_id = call.get("id")  # Needed for OpenAI
-
-                        logger.info(f"🛠️ Tool Call: {t_name} {t_args}")
-
-                        # --- EXECUTE TOOL ---
-                        try:
-                            result = await self.client.call_tool(t_name, t_args)
-                            # Handle FastMCP result object
-                            output_str = (
-                                result.content[0].text
-                                if hasattr(result, "content")
-                                else str(result)
-                            )
-                        except Exception as e:
-                            output_str = f"Error: {str(e)}"
-
-                        # Record Metadata (Your Requirement)
-                        self._record_step(t_name, t_args, output_str)
-
-                        tool_outputs.append({"name": t_name, "content": output_str, "id": t_id})
-
-                    # --- FEEDBACK LOOP ---
-                    # We pass the outputs back to the backend.
-                    # It returns the NEXT thought.
-                    response_text, calls = await self.backend.generate_response(
-                        tool_outputs=tool_outputs
-                    )
-
-                else:
-                    # No tool calls? The LLM is done thinking.
-                    break
-
-        end_time = time.perf_counter()
-
-        # Save Summary Metadata
-        self.save_mcp_metadata(end_time - start_time)
-
+        self.record_usage(time.perf_counter() - start_time)
         return response_text
 
-    def _record_step(self, tool, args, output):
+    async def run_llm_loop(self, instruction, step, context) -> str:
+        """
+        Process -> Tool -> Process loop.
+        We need to return on some state of success or ultimate failure.
+        """
+        max_loops = context.get("max_loops", 15)
+        loops = 0
+        while loops < max_loops:
+            loops += 1
+
+            # We aren't getting calls back reliably, so we ignore them.
+            # But we do allow the LLM to see functions available for signatures.
+            response, reason, _ = self.backend.generate_response(prompt=instruction)
+            self.ui.log(reason)
+
+            # If we don't have a validate step, we are done.
+            if not step.validate:
+                self.ui.log("🎢 No request for validation, ending loop.")
+                return response
+
+            # The response text needs to be valid (load into json)
+            response = self.backend.ensure_json(response)
+            # TODO need to better get args for validate here
+
+            # We next validate
+            result = await self.client.call_tool(step.validate, response)
+            if hasattr(result, "content") and isinstance(result.content, list):
+                content = result.content[0].text
+            else:
+                content = str(result)
+
+            # probably need to harden this more... want to return on 🟢 Success!
+            if "❌" not in content and "Error" not in content:
+                return content
+
+            # 5. FAILURE: Update instruction and Loop
+            instruction = f"The previous attempt failed:\n{content}\nPlease fix inputs and retry."
+            self.ui.log(f"⚠️ Validation Failed. Retrying... ({loops}/{max_loops})")
+
+            print("TODO need validation step to return some success / error code")
+            print(content)
+            # Record metadata about the step
+            self.record_step(step.validate, response, content)
+
+        # When we get here, we have validated
+        return content
+
+    async def fetch_persona(self, prompt_name: str, arguments: dict) -> str:
+        """
+        Asks the MCP Server to render the prompt template.
+
+        This is akin to rendering or fetching the person. E.g., "You are X and
+        here are your instructions for a task."
+        """
+        self.ui.log(f"📥 Persona: {prompt_name}")
+        prompt_result = await self.client.get_prompt(name=prompt_name, arguments=arguments)
+        # MCP Prompts return a list of messages (User/Assistant/Text).
+        # We squash them into a single string for the instruction.
+        msgs = []
+        for m in prompt_result.messages:
+            if hasattr(m.content, "text"):
+                msgs.append(m.content.text)
+            else:
+                msgs.append(str(m.content))
+
+        instruction = "\n\n".join(msgs)
+
+        # Set the prompt if we have a ui for it.
+        if self.ui and hasattr(self.ui, "on_set_prompt"):
+            self.ui.on_set_prompt(instruction)
+
+        return instruction
+
+    def record_step(self, tool, args, output):
+        """
+        Record step metadata.
+        TODO: refactor this into metadata registry (decorator)
+        """
         if "steps" not in self.metadata:
             self.metadata["steps"] = []
         self.metadata["steps"].append(
@@ -134,33 +185,31 @@ class MCPAgent(Agent):
             }
         )
 
-    def save_mcp_metadata(self, duration):
-        """Save token usage from backend."""
-        usage = self.backend.token_usage
-        if "llm_usage" not in self.metadata:
-            self.metadata["llm_usage"] = []
-
-        self.metadata["llm_usage"].append(
-            {
-                "duration": duration,
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-            }
-        )
-
-    def run_step(self, context):
+    def record_usage(self, duration):
         """
-        Bridge the sync Base Class to the async implementation.
+        Record token usage.
+        TODO: refactor this into metadata registry (decorator)
         """
-        prompt_text = self.get_prompt(context)
+        if hasattr(self.backend, "token_usage"):
+            usage = self.backend.token_usage
+            self.metadata["llm_usage"].append(
+                {
+                    "duration": duration,
+                    "prompt": usage.get("prompt_tokens", 0),
+                    "completion": usage.get("completion_tokens", 0),
+                }
+            )
 
+    def run_step(self, context, step):
+        """
+        Run step is called from the Agent run (base class)
+        It's here so we can asyncio.run the thing!
+        """
         try:
-            # Run the loop
-            final_result = asyncio.run(self.execute_mission_async(prompt_text))
-            context["result"] = final_result
+            final_result = asyncio.run(self.execute(context, step))
+            context.result = final_result
         except Exception as e:
             context["error_message"] = str(e)
             logger.error(f"Agent failed: {e}")
-            raise  # Or handle gracefully depending on policy
-
+            raise e
         return context

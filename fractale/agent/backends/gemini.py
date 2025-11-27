@@ -1,8 +1,6 @@
 import os
 from typing import Any, Dict, List
 
-import google.generativeai as genai
-
 from .llm import LLMBackend
 
 
@@ -11,6 +9,10 @@ class GeminiBackend(LLMBackend):
         """
         Init Gemini! We can try the newer one (3.0) when we test.
         """
+        # Don't import unless we are actually using.
+        import google.generativeai as genai
+
+        self.genai = genai
         try:
             genai.configure(api_key=os.environ["GEMINI_API_KEY"])
         # I'm allowing this for now because I don't have a working one...
@@ -34,10 +36,10 @@ class GeminiBackend(LLMBackend):
                 }
             )
 
-        model = genai.GenerativeModel(self.model_name, tools=gemini_tools)
+        model = self.genai.GenerativeModel(self.model_name, tools=gemini_tools)
         self.chat = model.start_chat(enable_automatic_function_calling=False)
 
-    async def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
         """
         Generate Gemini response.
 
@@ -51,18 +53,18 @@ class GeminiBackend(LLMBackend):
             parts = []
             for output in tool_outputs:
                 parts.append(
-                    genai.protos.Part(
+                    self.genai.protos.Part(
                         function_response=genai.protos.FunctionResponse(
                             name=output["name"].replace("-", "_"),
                             response={"result": output["content"]},
                         )
                     )
                 )
-            response = await self.chat.send_message_async(genai.protos.Content(parts=parts))
+            response = self.chat.send_message(self.genai.protos.Content(parts=parts))
 
         # Sending new text
         elif prompt:
-            response = await self.chat.send_message_async(prompt)
+            response = self.chat.send_message(prompt)
 
         # Extract Logic
         self._usage = {
@@ -80,7 +82,7 @@ class GeminiBackend(LLMBackend):
                 {"name": fc.name.replace("_", "-"), "args": dict(fc.args)}  # Map back to MCP
             )
 
-        return text_content, tool_calls
+        return text_content, msg.reasoning_content, tool_calls
 
     @property
     def token_usage(self):

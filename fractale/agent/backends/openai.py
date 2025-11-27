@@ -1,17 +1,25 @@
+import os
 from typing import Any, Dict, List
 
-from openai import AsyncOpenAI
+from rich import print
 
 from .llm import LLMBackend
 
 
 class OpenAIBackend(LLMBackend):
     """
-    Backend to use OpenAI (not tested yet)
+    Backend to use OpenAI
     """
 
-    def __init__(self, model_name="gpt-4o"):
-        self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    def __init__(self, model_name="openai/gpt-oss-120b"):
+        # Needs to be tested if base url is None.
+        # Switch to async if/when needed. Annoying for development
+        # self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), base_url=os.environ.get("OPENAI_BASE_URL"))
+        import openai
+
+        self.client = openai.OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"), base_url=os.environ.get("OPENAI_BASE_URL")
+        )
         self.model_name = model_name
         self.history = []
         self.tools_schema = []
@@ -27,7 +35,6 @@ class OpenAIBackend(LLMBackend):
                 {
                     "type": "function",
                     "function": {
-                        # OpenAI is fine with dashes
                         "name": tool.name,
                         "description": tool.description,
                         "parameters": tool.inputSchema,
@@ -35,7 +42,7 @@ class OpenAIBackend(LLMBackend):
                 }
             )
 
-    async def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
         """
         Generate the response and update history.
         """
@@ -47,11 +54,20 @@ class OpenAIBackend(LLMBackend):
                     {"role": "tool", "tool_call_id": out["id"], "content": str(out["content"])}
                 )
 
-        # Call API
-        response = await self.client.chat.completions.create(
-            model=self.model_name, messages=self.history, tools=self.tools_schema or None
-        )
+        # If we have a schema, force to call a tool.
+        # We will need to figure out what to do when we want to finish.
+        tool_choice = "auto" if self.tools_schema else None
 
+        # Call API (this doesn't need async I don't think, unless we create an async client)
+        print(tool_choice)
+        print(self.tools_schema)
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=self.history,
+            tools=self.tools_schema or None,
+            tool_choice=tool_choice,
+        )
+        print(response)
         msg = response.choices[0].message
 
         # Save assistant reply to history
@@ -63,14 +79,13 @@ class OpenAIBackend(LLMBackend):
             for tc in msg.tool_calls:
                 tool_calls.append(
                     {
-                        # OpenAI needs IDs
                         "id": tc.id,
                         "name": tc.function.name,
                         "args": json.loads(tc.function.arguments),
                     }
                 )
 
-        return msg.content, tool_calls
+        return msg.content, msg.reasoning_content, tool_calls
 
     @property
     def token_usage(self):

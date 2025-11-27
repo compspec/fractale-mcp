@@ -2,8 +2,6 @@ import json
 import os
 from typing import Any, Dict, List
 
-from openai import AsyncOpenAI
-
 from .llm import LLMBackend
 
 
@@ -12,13 +10,14 @@ class LlamaBackend(LLMBackend):
     Backend for Meta Llama 3.1+ models.
     """
 
-    def __init__(self, model_name=None):
-        # This should be provided by LLAMAME but I haven't tested.
-        # Why is a llama trying to call me that's not OK. Not sure if I need ollama
+    def __init__(self, model_name="Meta-Llama-3.3-70B-Instruct"):
         base_url = os.environ.get("LLAMA_BASE_URL", "http://localhost:11434/v1")
         api_key = os.environ.get("LLAMA_API_KEY", "ollama")
 
-        self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        # self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        import openai
+
+        self.client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
         # Default to Llama 3.1 8B if not specified
         self.model_name = model_name or os.environ.get("LLAMA_MODEL", "llama3.1")
@@ -46,13 +45,12 @@ class LlamaBackend(LLMBackend):
                 }
             )
 
-    async def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
         """
         Manage history and call Llama.
         """
         if prompt:
-            # Check if we have a System Prompt set (usually the first message).
-            # If not, Llama often behaves better with one.
+            # llama does better with system prompt.
             if not self.history:
                 self.history.append(
                     {
@@ -75,7 +73,7 @@ class LlamaBackend(LLMBackend):
                 )
 
         try:
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=self.history,
                 tools=self.tools_schema or None,
@@ -87,6 +85,7 @@ class LlamaBackend(LLMBackend):
         msg = response.choices[0].message
         if response.usage:
             self._usage = dict(response.usage)
+
         # Store history and get text content
         self.history.append(msg)
         text_content = msg.content or ""
@@ -102,7 +101,7 @@ class LlamaBackend(LLMBackend):
                     }
                 )
 
-        return text_content, tool_calls
+        return text_content, msg.reasoning_content, tool_calls
 
     @property
     def token_usage(self):

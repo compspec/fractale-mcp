@@ -1,6 +1,6 @@
 from fractale.agent.prompts import Prompt
 
-recovery_prompt = f"""You are an expert AI workflow troubleshooter. A step in a workflow has failed and reached a maximum number of retries. THis could mean that we need to go back in the workflow and redo work. Your job is to analyze the error and recommend a single, corrective step. The steps, each associated with an agent, you can choose from are as follows:
+recovery_prompt = f"""You are an expert AI workflow troubleshooter. A step in a workflow has failed and reached a maximum number of retries. This could mean that we need to go back in the workflow and redo work. Your job is to analyze the error and recommend a single, corrective step. The steps, each associated with an agent, you can choose from are as follows:
 
 Available Agents:
 %s
@@ -10,8 +10,9 @@ The above is in the correct order, and ends on the agent that ran last with the 
 %s
 
 Your job is to analyze the error message to determine the root cause, and decide which agent is best suited to fix this specific error.
-- You MUST formulate a JSON object for the corrective step with two keys: "agent_name" and "task_description".
+- You MUST formulate a JSON object for the corrective step with two keys: "agent_name" "reason" and "task_description".
 - The new "task_description" MUST be a clear instruction for the agent to correct the specific error.
+- The "reason" must explain why you chose the step and what needs to be done differently.
 - You MUST only provide a single JSON object for the corrective step in your response.
 - You MUST format your `task_description` to be a "You MUST" statement to the agent.
 """
@@ -19,11 +20,8 @@ Your job is to analyze the error message to determine the root cause, and decide
 # Same three inputs as above plus the unsuccessful attempt
 recovery_error_prompt = recovery_prompt.strip() + " Your last attempt was not successful:\n%s"
 
-retry_task = """You have had previous attempts, and here are summaries of previous issues:
-
-{% for issue in issues %}
- - {{ issue }}
-{% endfor %}
+retry_task = """You have had previous attempts, and here is the reason we are retrying this step:
+{{ issue }}
 """
 
 retry_instructions = ["You MUST avoid making these errors again."]
@@ -37,12 +35,8 @@ retry_prompt = {
 }
 
 
-def get_retry_prompt(context, issues):
+def get_retry_prompt(context, issue):
     """
     In testing, this should JUST be the error message.
     """
-    # This is an impossible case - we would have appended the task descriptions if this is getting called
-    # but you never know...
-    if not issues:
-        return ""
-    return Prompt(retry_prompt, context).render({"issues": issues})
+    return Prompt(retry_prompt, context).render({"issue": issue})

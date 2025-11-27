@@ -84,7 +84,7 @@ class Plan:
 
     def load(self):
         """
-        Initialize the Step objects.
+        Initialize the steps in the plan.
         """
         print(f"Loading plan from [bold magenta]{self.plan_path}[/bold magenta]...")
         self.agents = []  # We refer to steps as agents (v1 of this library)
@@ -119,37 +119,61 @@ class Plan:
 class Step:
     """
     Wraps a specific execution step.
+    Holds configuration + schema.
     """
 
-    def __init__(self, step_spec, save_incremental=False):
-        self.step_spec = step_spec
+    def __init__(self, spec, save_incremental=False):
+        self.spec = spec
         self.save_incremental = save_incremental
+        self._prompt_args = set()
+        self.attempts = 0
 
-    def execute(self, context):
+    def set_schema(self, valid_args: set):
         """
-        Run this step.
+        Called by Manager to define which arguments the Server Prompt accepts.
         """
-        # TODO vsoch: need to think about if this is necessary.
-        # I don't think so, I think a step is just a metadata holder.
-        # The "run step" will be a call to the MCP function.
-        # I'm leaving for now so I don't forget the previous design.
-        context = self.update_context(context)
-        if not hasattr(context, "agent_config"):
-            context.agent_config = {}
+        self._prompt_args = valid_args
 
-        # Map prompt from YAML to the config the Agent expects
-        context.agent_config = {"source_prompt": self.step_spec["prompt"], "step_name": self.name}
-        print("RUN STEP")
-        import IPython
+    def partition_inputs(self, full_context: dict) -> tuple[dict, dict]:
+        """
+        Splits context into:
+        1. Direct Arguments for the MCP Prompt function.
+        2. Supplemental Context for the LLM.
+        """
+        # Only update inputs that aren't already defined for the context
+        full_context = self.update_context(full_context)
 
-        IPython.embed()
+        # Fallback if schema missing
+        if self._prompt_args is None:
+            return full_context, {}
+
+        prompt_args = {}
+        background_info = {}
+
+        ignored = {
+            "managed",
+            "max_loops",
+            "max_attempts",
+            "result",
+            "error_message",
+        }
+
+        for key, value in full_context.items():
+            if key in self._prompt_args:
+                prompt_args[key] = value
+            elif key not in ignored:
+                background_info[key] = value
+
+        # TODO: we may want to supplement prompt with other "background info"
+        print(prompt_args)
+        return prompt_args, background_info
 
     def update_context(self, context):
         """
         Merge step-specific inputs into the context.
         """
-        overrides = ["max_attempts"]
-        inputs = self.step_spec.get("inputs", {})
+        overrides = ["max_attempts", "llm_provider", "llm_model"]
+        inputs = self.spec.get("inputs", {})
 
         for k, v in inputs.items():
             if k not in overrides:
@@ -158,15 +182,27 @@ class Step:
 
     @property
     def name(self):
-        return self.step_spec["name"]
+        return self.spec["name"]
+
+    @property
+    def max_attempts(self):
+        return self.spec.get("max_attempts")
+
+    @property
+    def agent(self):
+        return self.name
 
     @property
     def prompt(self):
-        return self.step_spec["prompt"]
+        return self.spec["prompt"]
+
+    @property
+    def validate(self):
+        return self.spec.get("validate")
 
     @property
     def description(self):
-        return self.step_spec.get("description", f"Executes persona: {self.prompt}")
+        return self.spec.get("description", f"Executes persona: {self.prompt}")
 
     def get(self, name, default=None):
-        return self.step_spec.get(name, default)
+        return self.spec.get(name, default)

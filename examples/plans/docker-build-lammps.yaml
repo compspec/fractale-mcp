@@ -1,10 +1,14 @@
 name: "LAMMPS Pipeline"
-
 plan:
+  # A step is a generation and validation step, where validation often interacts with
+  # the system
   - name: "build"
-    prompt: "docker-build-persona"
+    # This is the main prompt that will ask for (and generate) the Dockerfile
+    prompt: "docker_build_persona"
+    # And this is how we validate to exit this step.
+    validate: "docker_build"
     inputs:
-      description: "LAMMPS (Large-scale Atomic/Molecular Massively Parallel Simulator)"
+      application: "LAMMPS (Large-scale Atomic/Molecular Massively Parallel Simulator)"
       container: "ghcr.io/hpc-lab/lammps:cpu-latest"
       environment: "Rocky Linux 9, CPU Only"
 

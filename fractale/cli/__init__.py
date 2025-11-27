@@ -96,6 +96,7 @@ def get_parser():
         "plan",
         help="provide a plan to a manager",
     )
+    agent.add_argument("--mode", choices=["cli", "tui", "web"], default="tui")
     agent.add_argument(
         "--max-attempts",
         help="Maximum attempts for a manager or individual agent",
