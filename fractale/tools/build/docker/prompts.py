@@ -35,10 +35,11 @@ def get_build_text(application, environment, build_rules):
 ### GOAL
 I need to create a Dockerfile for an application '{application}'.
 The target environment is '{environment}'.
-You MUST generate a response with a robust "dockerfile" that loads into a Python dictionary.
+You MUST generate a response with ONLY Dockerfile content.
 You MUST NOT include other text or thinking with your response.
 You do NOT need to write the Dockerfile to disk, but rather provide to the build tool to handle.
 You MUST return a JSON response with a "dockerfile" field.
+The dockerfile field MUST be a list of commands, where each entry is a single line.
 
 ### REQUIREMENTS & CONSTRAINTS
 You must adhere to these rules strictly:
@@ -46,7 +47,7 @@ You must adhere to these rules strictly:
 
 ### INSTRUCTIONS
 1. Analyze the requirements and generate the Dockerfile content.
-2. Return a json structure with a "dockerfile"
+2. You MUST generate a json structure with a "dockerfile"
 """
 
 

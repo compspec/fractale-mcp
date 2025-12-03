@@ -26,8 +26,24 @@ class LLMBackend(ABC):
                 prompt = f"Your response {response} was not valid json: {e}"
                 response, _, _ = self.backend.generate_response(prompt=prompt)
 
+    def select_tools(self, use_tools=True):
+        """
+        Clean logic to decide to use a tool or not.
+        """
+        if not use_tools:
+            return {}
+
+        # TODO: we could apply more filters here.
+        tool_schema = self.tool_schema
+        tool_choice = "auto"
+        print(f"Tool choice: {tool_choice}")
+        print(f"Tool schema: {tools_schema}")
+        return {"tool_choice": tool_choice, "tools": tool_schema}
+
     @abstractmethod
-    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(
+        self, prompt: str = None, tool_outputs: List[Dict] = None, use_tools=True
+    ):
         """
         Returns a text_response, tool_calls
         """
