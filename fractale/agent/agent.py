@@ -8,9 +8,11 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from rich import print
 
+import fractale.utils as utils
 import fractale.agent.backends as backends
 import fractale.agent.defaults as defaults
 import fractale.agent.logger as logger
+import fractale.agent.prompts as prompts
 from fractale.agent.base import Agent
 
 
@@ -96,6 +98,48 @@ class MCPAgent(Agent):
         self.record_usage(time.perf_counter() - start_time)
         return response_text
 
+    async def manual_step_run(self, name, args):
+        """
+        Manually run a step (typically after a generation, like a validation).
+        """
+        result = await self.client.call_tool(name, args)
+        if hasattr(result, "content") and isinstance(result.content, list):
+            content = result.content[0].text
+        else:
+            content = str(result)
+
+        # probably need to harden this more.
+        was_error = True if "❌" in content or "Error" in content else False
+        self.record_step(name, args, content)
+        self.ui.on_step_update(content)
+        return was_error, content
+
+    async def call_tools(self, calls):
+        """
+        call tools.
+        """
+        tool_outputs = []
+        for call in calls:
+            t_name = call["name"]
+            t_args = call["args"]
+            t_id = call.get("id")
+            logger.info(f"🛠️  Calling: {t_name}")
+            has_error = False
+
+            try:
+                result = await self.client.call_tool(t_name, t_args)
+                content = result.content[0].text if hasattr(result, "content") else str(result)
+            except Exception as e:
+                content = f"❌ ERROR: {e}"
+                has_error = True
+            self.record_step(t_name, t_args, content)
+            self.ui.on_step_update(content)
+            tool_outputs.append({"id": t_id, "name": t_name, "content": content})
+            # Return content (with error) early if we generated one
+            if has_error:
+                return has_error, content, tool_outputs
+        return has_error, content, tool_outputs
+
     async def run_llm_loop(self, instruction, step, context) -> str:
         """
         Process -> Tool -> Process loop.
@@ -103,45 +147,88 @@ class MCPAgent(Agent):
         """
         max_loops = context.get("max_loops", 15)
         loops = 0
+        use_tools = step.validate in [None, ""]
+        print(f"Using tools? {use_tools}")
         while loops < max_loops:
+
             loops += 1
+            print(f"Calling {instruction}")
+            response, reason, calls = self.backend.generate_response(
+                prompt=instruction, use_tools=use_tools
+            )
 
-            # We aren't getting calls back reliably, so we ignore them.
-            # But we do allow the LLM to see functions available for signatures.
-            response, reason, _ = self.backend.generate_response(prompt=instruction)
-            self.ui.log(reason)
+            # Reset tool outputs
+            tool_outputs = None
 
-            # If we don't have a validate step, we are done.
-            if not step.validate:
-                self.ui.log("🎢 No request for validation, ending loop.")
-                return response
+            # These are here for debugging now.
+            if reason:
+                print("🧠 Thinking:")
+                self.ui.log(reason)
+            if response:
+                print("🗣️  Response:")
+                self.ui.log(response)
+            print("🔨 Tools available:")
+            self.ui.log(self.backend.tools_schema)
+            if calls:
+                print("📞 Calls requested:")
+                self.ui.log(calls)
 
-            # The response text needs to be valid (load into json)
-            response = self.backend.ensure_json(response)
-            # TODO need to better get args for validate here
+            # We validate OR allow it to call tools.
+            # Validate is a manual approach for LLMs that suck at following instructions
+            if step.validate:
 
-            # We next validate
-            result = await self.client.call_tool(step.validate, response)
-            if hasattr(result, "content") and isinstance(result.content, list):
-                content = result.content[0].text
+                # The response may be nested in a code block.
+                err, args = self.get_code_block(response)
+                if err:
+                    print(f" Error parsing code block from response: {err}")
+                    instruction = prompts.was_format_error_prompt(response)
+                    continue
+
+                err, response = await self.manual_step_run(step.validate, args)
+                if err:
+                    instruction = prompts.was_error_prompt(response)
+                    continue
+
+            # Call tools - good luck.
+            elif not calls:
+                logger.info("🛑 Agent finished (No tools called).")
+                break
+
             else:
-                content = str(result)
+                has_error, response, tool_outputs = await self.call_tools(calls)
+                if has_error:
+                    instruction = prompts.was_error_prompt(response)
+                    continue
 
-            # probably need to harden this more... want to return on 🟢 Success!
-            if "❌" not in content and "Error" not in content:
-                return content
+            # If we are successful, give back to llm to summarize (and we need to act on its response)
+            print("Calling again...")
+            response, reason, calls = self.backend.generate_response(tool_outputs=tool_outputs)
+            if response:
+                self.ui.log(f"🤖 Thought:\n{response}")
 
-            # 5. FAILURE: Update instruction and Loop
-            instruction = f"The previous attempt failed:\n{content}\nPlease fix inputs and retry."
-            self.ui.log(f"⚠️ Validation Failed. Retrying... ({loops}/{max_loops})")
+        return response
 
-            print("TODO need validation step to return some success / error code")
-            print(content)
-            # Record metadata about the step
-            self.record_step(step.validate, response, content)
+    def get_code_block(self, response, code_type=None):
+        """
+        Get a code block from the response.
+        """
+        # If we already have dict, we are good.
+        if isinstance(response, dict):
+            return None, response
 
-        # When we get here, we have validated
-        return content
+        # Try to json load if already have string
+        # Models are adding extra newlines where they shouldn't be...
+        try:
+            if isinstance(response, str):
+                return None, json.loads(response)
+        except Exception as e:
+            return str(e), None
+                
+        # We might have a code block nested in other output
+        try:
+            return None, json.loads(utils.get_code_block(response, code_type))
+        except Exception as e:
+            return str(e), None
 
     async def fetch_persona(self, prompt_name: str, arguments: dict) -> str:
         """
@@ -207,6 +294,10 @@ class MCPAgent(Agent):
         """
         try:
             final_result = asyncio.run(self.execute(context, step))
+            print("final result")
+            import IPython
+
+            IPython.embed()
             context.result = final_result
         except Exception as e:
             context["error_message"] = str(e)

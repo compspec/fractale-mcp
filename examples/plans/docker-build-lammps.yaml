@@ -9,8 +9,8 @@ plan:
     validate: "docker_build"
     inputs:
       application: "LAMMPS (Large-scale Atomic/Molecular Massively Parallel Simulator)"
-      container: "ghcr.io/hpc-lab/lammps:cpu-latest"
-      environment: "Rocky Linux 9, CPU Only"
+      container: "ghcr.io/converged-computing/fractale-mcp:lammps-cpu"
+      environment: "Ubuntu 24.04, CPU Only"
 
 #  - name: "deploy"
 #    prompt: "k8s-deploy-persona"

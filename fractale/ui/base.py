@@ -8,15 +8,12 @@ class UserInterface(Protocol):
     """
 
     def on_step_start(self, name: str, description: str, inputs: dict):
-        """
-        Onset of a new step.
-        """
+        pass
+
+    def on_step_update(self, content: str):
         pass
 
     def on_log(self, message: str, level: str = "info"):
-        """
-        Let there be logs.
-        """
         pass
 
     def log(self, message: str, level: str = "info"):

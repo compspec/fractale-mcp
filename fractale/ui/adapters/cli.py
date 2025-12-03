@@ -1,5 +1,7 @@
 import sys
 
+from rich import print
+
 from fractale.ui.base import UserInterface
 
 
@@ -7,6 +9,15 @@ class CLIAdapter(UserInterface):
     def on_step_start(self, name, description, inputs):
         print(f"\n🚀 STEP: {name}")
         print(f"   Goal: {description}")
+
+    def on_step_update(self, content: str):
+        """
+        Called when a tool produces output, but the step isn't finished yet.
+        """
+        print("\n[dim]--- Tool Output Update ---[/dim]")
+        if len(content) > 500:
+            content = content[:500] + "..."
+        print(content)
 
     def on_log(self, message, level="info"):
         # Simple print

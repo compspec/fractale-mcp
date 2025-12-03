@@ -16,6 +16,16 @@ template = """
 """
 
 
+def was_format_error_prompt(content):
+    return f"The previous attempt failed:\n{content}\nYou MUST generate a code block or string that can be parsed into JSON."
+
+
+def was_error_prompt(content):
+    return (
+        f"The previous attempt failed:\n{content}\nPlease regenerate and/or fix inputs and retry."
+    )
+
+
 class Prompt:
     """
     A prompt is a structured instruction for an LLM.
