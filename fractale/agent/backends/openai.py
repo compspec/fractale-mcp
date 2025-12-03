@@ -11,7 +11,7 @@ class OpenAIBackend(LLMBackend):
     Backend to use OpenAI
     """
 
-    def __init__(self, model_name="openai/gpt-oss-120b"):
+    def __init__(self, model_name="gpt-5-mini"): #model_name="openai/gpt-oss-120b"):
         # Needs to be tested if base url is None.
         # Switch to async if/when needed. Annoying for development
         # self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), base_url=os.environ.get("OPENAI_BASE_URL"))
@@ -42,7 +42,9 @@ class OpenAIBackend(LLMBackend):
                 }
             )
 
-    def generate_response(self, prompt: str = None, tool_outputs: List[Dict] = None):
+    def generate_response(
+        self, prompt: str = None, tool_outputs: List[Dict] = None, use_tools=True
+    ):
         """
         Generate the response and update history.
         """
@@ -54,17 +56,13 @@ class OpenAIBackend(LLMBackend):
                     {"role": "tool", "tool_call_id": out["id"], "content": str(out["content"])}
                 )
 
-        # If we have a schema, force to call a tool.
-        # We will need to figure out what to do when we want to finish.
-        tool_choice = "auto" if self.tools_schema else None
-
-        # Call API (this doesn't need async I don't think, unless we create an async client)
-        print(tool_choice)
-        print(self.tools_schema)
+        default_tool_choice = "auto" if self.tools_schema else None
+        tool_choice = True if use_tools else default_tool_choice
+        tools_schema = self.tools_schema if tool_choice else None
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=self.history,
-            tools=self.tools_schema or None,
+            tools=tools_schema,
             tool_choice=tool_choice,
         )
         print(response)
@@ -85,7 +83,7 @@ class OpenAIBackend(LLMBackend):
                     }
                 )
 
-        return msg.content, msg.reasoning_content, tool_calls
+        return msg.content, "", tool_calls
 
     @property
     def token_usage(self):

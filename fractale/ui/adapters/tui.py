@@ -32,6 +32,13 @@ class TextualAdapter(UserInterface):
     def __init__(self, app: "FractaleApp"):
         self.app = app
 
+    def on_step_update(self, content: str):
+        """
+        Called by Agent to show live tool output in the UI.
+        """
+        # Update the output box.
+        self.app.call_from_thread(self.app.action_set_result, str(content))
+
     def on_step_start(self, name: str, description: str, inputs: dict):
         prompt_text = inputs.get("_debug_prompt_text", "")
         self.app.call_from_thread(self.app.action_add_step, name, description)
@@ -117,6 +124,8 @@ class StepDisplay(Collapsible):
             self.container_log.display = True
             self.container_log.collapsed = False  # Auto-expand on first log
 
+        if not isinstance(message, str):
+            message = json.dumps(message)
         self.log_widget.write_line(message)
 
     def start_loading(self):
@@ -348,6 +357,7 @@ class FractaleApp(App):
         if self.current_step_widget:
             self.current_step_widget.title = self.current_step_widget.title.replace("▶️", "✅")
             self.current_step_widget.set_result(content)
+            self.current_step_widget.collapsed = True
 
     def action_status(self, msg: str, style: str):
         # If status indicates failure, stop spinner

@@ -3,6 +3,7 @@ from fractale.tools.decorator import mcp
 import fractale.tools.build.docker.prompts as prompts
 import fractale.agent.logger as logger
 import fractale.utils as utils
+from fractale.tools.result import Result
 import shutil
 import re
 import os
@@ -72,7 +73,7 @@ class DockerBuildTool(BaseTool):
         return Result(p).render()
 
     @mcp.tool(name="docker_build")
-    def build_container(self, dockerfile: str, uri: str = "lammps", platforms: str = None):
+    def build_container(self, dockerfile: list, uri: str = "lammps", platforms: str = None):
         """
         Build a docker container. Accepts an optional unique resource identifier (URI).
         The build is always done in a protected temporary directory.
@@ -83,6 +84,9 @@ class DockerBuildTool(BaseTool):
         push: push to the registry. Requires that the docker agent is authenticated.
         load: load into a kubernetes in docker (kind) cluster.
         """
+        # We pass as list because newlines in json... no go!
+        dockerfile = "\n".join(dockerfile)
+
         # This ensures that we aren't given a code block, etc.
         pattern = "```(?:docker|dockerfile)?\n(.*?)```"
         match = re.search(pattern, dockerfile, re.DOTALL)
@@ -118,11 +122,10 @@ class DockerBuildTool(BaseTool):
         )
         # Clean up after we finish
         shutil.rmtree(build_dir, ignore_errors=True)
-        output = logger.success(p.stdout + p.stderr)
 
         # Streamline (filter) output and return result object
-        p.stdout = output = self.filter_output(output)
-        p.stderr = None
+        p.stdout = self.filter_output(p.stdout)
+        p.stderr = self.filter_output(p.stderr)
         return Result(p).render()
 
     def filter_output(self, output):
@@ -139,6 +142,7 @@ class DockerBuildTool(BaseTool):
             "update-alternatives",
             "Reading database ...",
         ]
+        output = output or ""
         regex = "(%s)" % "|".join(skips)
         output = "\n".join([x for x in output.split("\n") if not re.search(regex, x)])
         # Try to match lines that start with #<number>
