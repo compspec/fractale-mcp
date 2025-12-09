@@ -83,7 +83,7 @@ class OpenAIBackend(LLMBackend):
                     }
                 )
 
-        return msg.content, msg.reasoning_content, tool_calls
+        return msg.content, "", tool_calls
 
     @property
     def token_usage(self):
