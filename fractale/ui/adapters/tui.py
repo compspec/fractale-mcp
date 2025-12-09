@@ -124,6 +124,8 @@ class StepDisplay(Collapsible):
             self.container_log.display = True
             self.container_log.collapsed = False  # Auto-expand on first log
 
+        if isinstance(message, list):
+            message = "\n".join(message)
         self.log_widget.write_line(message)
 
     def start_loading(self):
