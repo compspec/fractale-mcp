@@ -11,7 +11,7 @@ class OpenAIBackend(LLMBackend):
     Backend to use OpenAI
     """
 
-    def __init__(self, model_name="openai/gpt-oss-120b"):
+    def __init__(self, model_name="gpt-5-mini"): #model_name="openai/gpt-oss-120b"):
         # Needs to be tested if base url is None.
         # Switch to async if/when needed. Annoying for development
         # self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), base_url=os.environ.get("OPENAI_BASE_URL"))
@@ -55,10 +55,6 @@ class OpenAIBackend(LLMBackend):
                 self.history.append(
                     {"role": "tool", "tool_call_id": out["id"], "content": str(out["content"])}
                 )
-
-        # Call API (this doesn't need async I don't think, unless we create an async client)
-        print(tool_choice)
-        print(self.tools_schema)
 
         default_tool_choice = "auto" if self.tools_schema else None
         tool_choice = True if use_tools else default_tool_choice
