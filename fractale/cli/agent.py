@@ -1,43 +1,35 @@
-import os
-
-from fractale.agent.manager import ManagerAgent
+from fractale.engines import get_engine
 
 
 def main(args, extra, **kwargs):
     """
-    Run an agent workflow.
+    Run an agent workflow using the configured engine.
     """
     # Prepare Context from Arguments
     context = vars(args)
 
-    # Instantiate Manager (Headless).
-    # This will by default select a headless manager, which we will update
-    manager = ManagerAgent(
-        results_dir=args.results,
-        save_incremental=args.incremental,
-        max_attempts=args.max_attempts,
-        ui=None,
+    # Instantiate the Engine (native state machine, autogen, langchain)
+    engine = get_engine(
+        engine=args.engine, plan=args.plan, backend=args.backend, max_attempts=args.max_attempts
     )
 
-    # 3. Select Interaction Mode
+    # 3. Select Interaction Mode & Attach UI
     if args.mode == "tui":
-        # The App takes ownership of the Manager, I'm not sure how else to do it.
-        # It creates the TextualAdapter internally and runs manager.run() in a thread.
         from fractale.ui.adapters.tui import FractaleApp
 
-        app = FractaleApp(manager, context)
+        # The App takes ownership of the Engine.
+        # It will instantiate TextualAdapter and assign it to engine.ui
+        app = FractaleApp(engine, context)
         app.run()
 
-    # These next two are blocking for UI interactions
     elif args.mode == "web":
         from fractale.ui.adapters.web import WebAdapter
 
-        manager.ui = WebAdapter(url="http://localhost:3000")
-        manager.run(context)
+        engine.ui = WebAdapter(url="http://localhost:3000")
+        engine.run(context)
 
     else:
-        # This is the default mode (ui)
         from fractale.ui.adapters.cli import CLIAdapter
 
-        manager.ui = CLIAdapter()
-        manager.run(context)
+        engine.ui = CLIAdapter()
+        engine.run(context)
