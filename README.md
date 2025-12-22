@@ -8,6 +8,9 @@
 
 We create a single, robust and asynchronous server that can dynamically discover and load tools of interest. Instead of multiple ports (one per tool) we serve tools on one port, given an http transport.
 
+- **Agents** can be driven by an agent interface. We support "native" (state machine), and (TBA) autogen and langchain.
+- **Plan** is the YAML manifest that any agent can read and deploy.
+
 ### Tools
 
 The fractale-mcp library is based on discoverability. While any installed module is probably too lenient (e.g., imagine anything on the PYTHONPATH would be found), instead we automatically discover tools with a common base class in `fractale/tools`. The developer user can easily register additional tool modules that may not be a part of fractale here. E.g.,:
@@ -25,17 +28,9 @@ manager.register("fractale.tools")
 manager.register("mymodule.tools")
 ```
 
+Note that if you are looking for Flux-related tools, see [flux-mcp](https://github.com/converged-computing/flux-mcp).
 Tools to add:
 
- - flux
-   - flux-sched
-   - delegation
-   - submit jobs
-   - validator
-   - topology?
-   - batch job generation
-   - jobspec generation
-   - translation (the transformers?)
  - helpers
    - debug
    - result parser (regular expressions)
@@ -43,8 +38,6 @@ Tools to add:
  - kubernetes
    - deploy job
    - deploy minicluster
- - build
-   - docker
 
 ### Environment
 
@@ -61,7 +54,6 @@ The following variables can be set in the environment.
 Start the server in one terminal. Export `FRACTALE_MCP_TOKEN` if you want to require simple token auth. Here is for http.
 
 ```bash
-export FRACTALE_TOKEN_AUTH=dudewheresmycar
 fractale start --transport http --port 8089
 ```
 
@@ -78,6 +70,7 @@ python3 examples/mcp/test_echo.py
 ### Agents
 
 The `fractale agent` command provides means to run build, job generation, and deployment agents.
+While we likely will use AutoGen and LangChain, we want to test this approach that uses a state machine.
 In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test
 doing a build:
 
@@ -93,8 +86,14 @@ export FRACTALE_LLM_PROVIDER=openai
 export OPENAI_API_KEY=xxxxxxxxxxxxxxxx
 export OPENAI_BASE_URL=https://my.custom.url/v1
 
+# For testing I prefer to use Gemini and their API
+export GEMINI_API_TOKEN=xxxxxxxxxx
+
 # In the other, run the plan
-fractale agent ./examples/plans/docker-build-lammps.yaml
+fractale agent ./examples/plans/build-lammps.yaml
+
+# It's often easier to debug with cli mode
+fractale agent --mode cli ./examples/plans/build-lammps.yaml
 ```
 
  - `manager` agents know how to orchestrate step agents and choose between them (don't hold state, but could)

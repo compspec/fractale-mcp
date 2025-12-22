@@ -1,28 +1,31 @@
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
-import fractale.agent.backends.prompts as prompts
+import fractale.engines.native.prompts as prompts
+from fractale.core.config import ModelConfig
 
-from .llm import LLMBackend
+from .base import LLMBackend
 
 
 class LlamaBackend(LLMBackend):
     """
-    Backend for Meta Llama 3.1+ models.
+    Backend for Meta Llama 3.1+ models via OpenAI-Compatible endpoints (Ollama, Groq, vLLM).
     """
 
-    def __init__(self, model_name="meta-llama/Llama-3.3-70B-Instruct"):
-        base_url = os.environ.get("LLAMA_BASE_URL", "http://localhost:11434/v1")
-        api_key = os.environ.get("LLAMA_API_KEY", "ollama")
-        self.disable_history = os.environ.get("LLAMA_DISABLE_HISTORY") is not None
+    def __init__(self, config: ModelConfig):
+        super().__init__()
 
-        # self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        # Use config for connection, fallback to defaults for local Ollama
+        base_url = config.base_url or "http://localhost:11434/v1"
+        api_key = config.api_key or "ollama"
+
         import openai
 
         self.client = openai.OpenAI(base_url=base_url, api_key=api_key)
-        self.model_name = os.environ.get("LLAMA_MODEL") or model_name
+        self.model_name = config.model_name or "llama3.1"
 
+        self.disable_history = os.environ.get("LLAMA_DISABLE_HISTORY") is not None
         self.history = []
         self.tools_schema = []
         self._usage = {}
@@ -30,8 +33,6 @@ class LlamaBackend(LLMBackend):
     async def initialize(self, mcp_tools: List[Any]):
         """
         Llama 3.1 follows the OpenAI Tool Schema standard.
-
-        TODO: vsoch see if we can consolidate with OpenAI base when testing.
         """
         self.tools_schema = []
         for tool in mcp_tools:
@@ -39,7 +40,7 @@ class LlamaBackend(LLMBackend):
                 {
                     "type": "function",
                     "function": {
-                        "name": tool.name,  # Llama handles dashes fine
+                        "name": tool.name,
                         "description": tool.description,
                         "parameters": tool.inputSchema,
                     },
@@ -47,13 +48,19 @@ class LlamaBackend(LLMBackend):
             )
 
     def generate_response(
-        self, prompt: str = None, tool_outputs: List[Dict] = None, use_tools=True
-    ):
+        self,
+        prompt: str = None,
+        tool_outputs: List[Dict] = None,
+        use_tools: bool = True,
+        one_off: bool = False,
+    ) -> Tuple[str, str, List[Dict]]:
         """
         Manage history and call Llama.
         """
+        # TODO: Implement one_off support
+
         if prompt:
-            # llama does better with system prompt.
+            # Llama does better with a system prompt if history is empty
             if not self.history:
                 self.history.append(
                     {
@@ -61,38 +68,39 @@ class LlamaBackend(LLMBackend):
                         "content": prompts.with_tools if use_tools else prompts.without_tools,
                     }
                 )
-            # We have to add this to history, the main prompt.
             self.history.append({"role": "user", "content": prompt})
 
-        # Handle tool outputs (Function results)
+        # Handle tool outputs
         if tool_outputs and use_tools and not self.disable_history:
             for out in tool_outputs:
                 self.history.append(
                     {
                         "role": "tool",
-                        # Required for the conversation graph
                         "tool_call_id": out["id"],
                         "content": str(out["content"]),
                     }
                 )
 
-        # Derive choice and options - we can add additional filters here.
-        tool_args = self.select_tools(use_tools)
+        # Get tool args from base helper
+        api_args = self.select_tools(use_tools)
+
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name, messages=self.history, **tool_args
+                model=self.model_name, messages=self.history, **api_args
             )
         except Exception as e:
             return f"LLAMA API ERROR: {str(e)}", "", []
 
         print(f"Response {response}")
         msg = response.choices[0].message
+
         if response.usage:
             self._usage = dict(response.usage)
 
-        # Store history and get text content ONLY if not disabled.
+        # Store history if not disabled
         if not self.disable_history:
             self.history.append(msg)
+
         text_content = msg.content or ""
 
         tool_calls = []
@@ -106,7 +114,7 @@ class LlamaBackend(LLMBackend):
                     }
                 )
 
-        return text_content, msg.reasoning_content, tool_calls
+        return text_content, getattr(msg, "reasoning_content", ""), tool_calls
 
     @property
     def token_usage(self):

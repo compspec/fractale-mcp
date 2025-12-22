@@ -6,6 +6,8 @@ import sys
 import threading
 
 from fastmcp.utilities.logging import get_logger
+from rich import print
+from rich.panel import Panel
 
 
 class LogColors:
@@ -109,8 +111,8 @@ class Logger:
         info = inspect.getframeinfo(frame)
         self.debug("{}: {info.filename}, {info.function}, {info.lineno}".format(msg, info=info))
 
-    def info(self, msg):
-        self.handler(dict(level="info", msg=msg))
+    def info(self, message):
+        print(f"\n[bold cyan] {message}[/bold cyan]")
 
     def warning(self, msg):
         self.handler(dict(level="warning", msg=msg))
@@ -137,13 +139,24 @@ class Logger:
         """
         Wrapper to add success to output for LLM.
         """
-        return "✅ SUCCESS: " + message
+        return success(message)
+        # return "✅ SUCCESS: " + message
 
     def failure(self, message):
         """
         Wrapper to add success to output for LLM.
         """
-        return "❌ FAILED: " + message
+        return error(message)
+        # return "❌ FAILED: " + message
+
+    def custom(self, message, title, border_style=None, expand=True):
+        """
+        Custom message / title Panel.
+        """
+        if not border_style:
+            print(Panel(message, title=title, expand=expand))
+        else:
+            print(Panel(message, title=title, border_style=border_style, expand=expand))
 
     def text_handler(self, msg):
         """The default snakemake log handler.
@@ -192,3 +205,49 @@ def setup_logger(
     logger.set_level(_logging.DEBUG if debug else _logging.INFO)
     logger.quiet = quiet
     logger.printshellcmds = printshellcmds
+
+
+def success(message, title="Success", border_style="green", expand=True):
+    """
+    Helper function to print successful message.
+    """
+    print(
+        Panel(
+            f"[bold green] {message}[/bold green]",
+            title=title,
+            border_style=border_style,
+            expand=expand,
+        )
+    )
+
+
+def error(message, title="Error", border_style="red", expand=True):
+    """
+    Helper function to print error "beep boop" message.
+    """
+    print(
+        Panel(
+            f"[bold red] {message}[/bold red]",
+            title=title,
+            border_style=border_style,
+            expand=expand,
+        )
+    )
+
+
+def exit(message, title="Error", border_style="red", expand=True):
+    error(message, title, border_style, expand)
+    sys.exit(-1)
+
+
+def warning(message, title="Warning", border_style="yellow"):
+    """
+    Helper function to print a warning
+    """
+    print(
+        Panel(
+            message,
+            title=f"[yellow]{title}[/yellow]",
+            border_style=border_style,
+        )
+    )

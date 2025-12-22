@@ -1,7 +1,7 @@
 from fractale.tools.base import BaseTool
 from fractale.tools.decorator import mcp
 import fractale.tools.build.docker.prompts as prompts
-import fractale.agent.logger as logger
+from fractale.logger import logger
 import fractale.utils as utils
 from fractale.tools.result import Result
 import shutil
@@ -73,7 +73,7 @@ class DockerBuildTool(BaseTool):
         return Result(p).render()
 
     @mcp.tool(name="docker_build")
-    def build_container(self, dockerfile: list, uri: str = "lammps", platforms: str = None):
+    def build_container(self, dockerfile: list[str], uri: str = "lammps", platforms: str = None):
         """
         Build a docker container. Accepts an optional unique resource identifier (URI).
         The build is always done in a protected temporary directory.
@@ -141,6 +141,7 @@ class DockerBuildTool(BaseTool):
             "Setting up ",
             "update-alternatives",
             "Reading database ...",
+            "Updating files",
         ]
         output = output or ""
         regex = "(%s)" % "|".join(skips)

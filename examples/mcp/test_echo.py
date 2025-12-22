@@ -25,7 +25,7 @@ async def call_tool(message: str):
         for tool in tools:
             print(f"  ⭐ Discovered tool: {tool.name}")
         print()
-        result = await client.call_tool("simple-echo", {"message": message})
+        result = await client.call_tool("simple_echo", {"message": message})
         print(result)
 
 try:
