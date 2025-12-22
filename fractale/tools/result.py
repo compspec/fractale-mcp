@@ -27,7 +27,7 @@ class Result:
         """
         Parse content into the unified interface.
         """
-        # subprocess Result
+        # subprocess result
         if isinstance(content, subprocess.CompletedProcess):
             self.returncode = content.returncode
             self.stdout = self._decode(content.stdout)
@@ -50,7 +50,9 @@ class Result:
             self.stdout = ""
 
     def _decode(self, val):
-        """Safe decoding of bytes or string."""
+        """
+        Safe decoding of bytes or string.
+        """
         if val is None:
             return ""
         if isinstance(val, bytes):
