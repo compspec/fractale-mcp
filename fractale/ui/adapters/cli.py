@@ -27,7 +27,7 @@ class CLIAdapter(UserInterface):
         if error:
             print(f"❌ {name} Failed: {error}")
         else:
-            print(f"✅ {name} Complete.")
+            print(f"✅ {name} complete.")
 
     def on_workflow_complete(self, status):
         print(f"\n🏁 Workflow: {status}")

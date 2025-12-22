@@ -16,7 +16,9 @@ class Manager:
     Standalone class (No inheritance from Agent).
     """
 
-    def __init__(self, plan, ui=None, results_dir=None, max_attempts=10, backend="gemini"):
+    def __init__(
+        self, plan, ui=None, results_dir=None, max_attempts=10, backend="gemini", database=None
+    ):
         self.plan = plan
         self.ui = ui
 
@@ -25,6 +27,7 @@ class Manager:
         self.max_attempts = max_attempts
         self.backend = backend
         self.attempts = 0
+        self.database = database
         self.metadata = {"status": "Pending"}
         self.init()
 
@@ -65,7 +68,7 @@ class Manager:
         sm = WorkflowStateMachine(
             states=self.plan.states,
             context=context,
-            runner_callbacks={"agent": self.run_agent, "tool": self.run_tool},
+            callbacks={"agent": self.run_agent, "tool": self.run_tool},
         )
 
         logger.info(
@@ -81,29 +84,32 @@ class Manager:
                 if step_meta:
                     tracker.append(step_meta)
 
-                # Are we done?
+                print("FINISHED?")
+                print(finished)
+
+                # Are we done? We need to break from True
                 if finished:
                     self.metadata["status"] = sm.current_state_name
                     if self.ui:
-                        self.ui.on_workflow_complete(sm.current_state_name.capitalize())
+                        self.ui.on_workflow_complete(sm.current_state_name)
                     break
 
                 # TODO: vsoch: clean this up.
-                if step_meta and "failure" in step_meta.get("transition", ""):
-                    if sm.current_state_name == "failed":
-                        if self.ui:
-                            action = self.ui.ask_user(
-                                f"Workflow Failed at '{step_meta['agent']}'.\nError: {step_meta['error']}\nRetry?",
-                                options=["retry", "quit"],
-                            )
-                            if action == "retry":
-                                sm.current_state_name = step_meta["agent"]
-                                logger.warning(
-                                    f"🔄 User requested retry. Rewinding to {step_meta['agent']}"
-                                )
-                                continue
-                            else:
-                                break
+                # if step_meta and "failure" in step_meta.get("transition", ""):
+                #    if sm.current_state_name == "failed":
+                #        if self.ui:
+                #            action = self.ui.ask_user(
+                #                f"Workflow Failed at '{step_meta['agent']}'.\nError: {step_meta['error']}\nRetry?",
+                #                options=["retry", "quit"],
+                #            )
+                #            if action == "retry":
+                #                sm.current_state_name = step_meta["agent"]
+                #                logger.warning(
+                #                    f"🔄 User requested retry. Rewinding to {step_meta['agent']}"
+                #                )
+                #                continue
+                #            else:
+                #                break
 
             # Save and return
             self.save_results(tracker)
@@ -231,18 +237,16 @@ class Manager:
 
     def save_results(self, tracker):
         """
-        Save results to local file.
-
-        TODO: vsoch: we should have a more organized way of doing this.
-        Maybe a database backend?
+        Delegates saving to the configured Database backend.
         """
-        if not os.path.exists(self.results_dir):
-            os.makedirs(self.results_dir)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        results_file = os.path.join(self.results_dir, f"results-{timestamp}.json")
+        if not self.database:
+            return
+
         data = {
             "steps": tracker,
             "plan_source": self.plan.plan_path,
+            "status": self.metadata.get("status"),
             "metadata": self.metadata,
         }
-        utils.write_json(data, results_file)
+
+        self.database.save(data)
