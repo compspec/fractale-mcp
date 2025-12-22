@@ -1,6 +1,6 @@
 import collections
 
-import fractale.agent.logger as logger
+from fractale.logger import logger
 
 
 def get_context(context):

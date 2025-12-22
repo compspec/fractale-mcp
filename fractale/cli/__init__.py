@@ -97,21 +97,13 @@ def get_parser():
         help="provide a plan to a manager",
     )
     agent.add_argument("--mode", choices=["cli", "tui", "web"], default="tui")
+    agent.add_argument("--engine", choices=["native", "langchain", "autogen"], default="native")
+    agent.add_argument("--backend", choices=["openai", "gemini", "llama"], default="gemini")
     agent.add_argument(
         "--max-attempts",
         help="Maximum attempts for a manager or individual agent",
         default=None,
         type=int,
-    )
-    agent.add_argument(
-        "--results",
-        help="Save to a custom results directory.",
-    )
-    agent.add_argument(
-        "--incremental",
-        help="Save incremental results for later inspection",
-        action="store_true",
-        default=False,
     )
     return parser
 

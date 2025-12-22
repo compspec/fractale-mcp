@@ -1,0 +1,32 @@
+name: "LAMMPS Build"
+steps:
+   # The persona generates the Dockerfile
+  - name: generate
+    type: agent
+    prompt: "docker_build_persona"
+
+    # Inputs that can be passed forward to next steps
+    inputs:
+      application: "LAMMPS"
+      container: "ghcr.io/converged-computing/lammps:latest"
+      environment: "Ubuntu 24.04"
+
+    # If we left this out, it would imply success moves
+    # to the next step. I'm adding to be explicit.
+    transitions:
+      success: validate
+
+  # Validation is done with a docker build
+  - name: validate
+    type: tool
+    tool: "docker_build"
+    transitions:
+      success: finish
+      failure: fix
+
+  - name: fix
+    type: agent
+    prompt: "docker_fix_persona"
+    transitions:
+      # Loop back to validate step
+      success: validate
