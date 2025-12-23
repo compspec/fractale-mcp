@@ -1,4 +1,6 @@
-from typing import Any, Optional, Protocol
+from typing import Optional, Protocol
+
+from fractale.logger import logger
 
 
 class UserInterface(Protocol):
@@ -7,31 +9,48 @@ class UserInterface(Protocol):
     Any implementation (Web, TUI, CLI) must provide these methods.
     """
 
-    def on_step_start(self, name: str, description: str, inputs: dict):
-        pass
-
-    def on_step_update(self, content: str):
-        pass
-
-    def on_log(self, message: str, level: str = "info"):
-        pass
-
-    def log(self, message: str, level: str = "info"):
-        self.on_log(message, level)
-
-    def on_step_finish(self, name: str, result: str, error: Optional[str], metadata: dict):
+    def log(self, message: str, level: str = "info", do_handle: bool = True):
         """
-        A step completes (success or failure).
+        Main (general) log that is akin to info.
         """
-        pass
+        if not message:
+            return True
+        if hasattr(self, "on_log"):
+            self.on_log(message, level)
+        else:
+            # We don't want any logging here
+            if do_handle:
+                logger.info(message)
+            return False
 
-    def on_workflow_complete(self, status: str):
+    def log_update(self, *args, **kwargs):
+        """
+        Send update message to log (if supports)
+        """
+        if hasattr(self, "on_step_update"):
+            self.on_step_update(*args, **kwargs)
+
+    def log_finish(self, *args, **kwargs):
+        """
+        Send finish message to log (if supports)
+        """
+        if hasattr(self, "on_step_finish"):
+            self.on_step_finish(*args, **kwargs)
+
+    def log_start(self, *args, **kwargs):
+        """
+        Send start message to log (if supports)
+        """
+        if hasattr(self, "on_step_start"):
+            self.on_step_start(*args, **kwargs)
+
+    def log_workflow_complete(self, *args, **kwargs):
         """
         The whole plan finishes.
         """
-        pass
+        if hasattr(self, "on_workflow_complete"):
+            self.on_workflow_complete(*args, **kwargs)
 
-    # --- INPUT (Blocking) ---
     def ask_user(self, question: str, options: list[str] = None) -> str:
         """
         The Manager pauses until the user answers (blocking)

@@ -2,14 +2,15 @@ import os
 from datetime import datetime
 
 import fractale.utils as utils
+from fractale.engines.native.result import parse_tool_response
 from fractale.logger import logger
 
-from .agent import WorkerAgent
+from .agent import AgentBase, WorkerAgent
 from .context import get_context
 from .state_machine import WorkflowStateMachine
 
 
-class Manager:
+class Manager(AgentBase):
     """
     The Native Engine Orchestrator.
     Executes the Plan using a local Finite State Machine.
@@ -31,21 +32,6 @@ class Manager:
         self.metadata = {"status": "Pending"}
         self.init()
 
-    def init(self):
-        """
-        Initialize the infrastructure (MCP Client for the Manager).
-        """
-        from fastmcp import Client
-        from fastmcp.client.transports import StreamableHttpTransport
-
-        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
-        token = os.environ.get("FRACTALE_MCP_TOKEN")
-        url = f"http://127.0.0.1:{port}/mcp"
-
-        headers = {"Authorization": token} if token else None
-        transport = StreamableHttpTransport(url=url, headers=headers)
-        self.client = Client(transport)
-
     def run(self, context_input):
         """
         Main entry point.
@@ -64,11 +50,14 @@ class Manager:
         # God I hate asyncio
         utils.run_sync(self.connect_and_validate())
 
-        # 4. Setup State Machine Engine
+        # Setup State Machine Engine
+        # The manager here creates a state machine
+        # The state machine is given callbacks for running an agent or tool, defined here.
         sm = WorkflowStateMachine(
             states=self.plan.states,
             context=context,
             callbacks={"agent": self.run_agent, "tool": self.run_tool},
+            ui=self.ui,
         )
 
         logger.info(
@@ -84,32 +73,18 @@ class Manager:
                 if step_meta:
                     tracker.append(step_meta)
 
-                print("FINISHED?")
-                print(finished)
-
                 # Are we done? We need to break from True
                 if finished:
                     self.metadata["status"] = sm.current_state_name
-                    if self.ui:
-                        self.ui.on_workflow_complete(sm.current_state_name)
+                    self.ui.log_workflow_complete(sm.current_state_name)
                     break
 
-                # TODO: vsoch: clean this up.
-                # if step_meta and "failure" in step_meta.get("transition", ""):
-                #    if sm.current_state_name == "failed":
-                #        if self.ui:
-                #            action = self.ui.ask_user(
-                #                f"Workflow Failed at '{step_meta['agent']}'.\nError: {step_meta['error']}\nRetry?",
-                #                options=["retry", "quit"],
-                #            )
-                #            if action == "retry":
-                #                sm.current_state_name = step_meta["agent"]
-                #                logger.warning(
-                #                    f"🔄 User requested retry. Rewinding to {step_meta['agent']}"
-                #                )
-                #                continue
-                #            else:
-                #                break
+                # Ask user what to do next
+                action = sm.ask_next_step(step_meta)
+
+                # Implied action retry is a continue
+                if action == "quit":
+                    break
 
             # Save and return
             self.save_results(tracker)
@@ -124,8 +99,7 @@ class Manager:
         """
         Runs the WorkerAgent for an 'agent' type step.
         """
-        if self.ui:
-            self.ui.on_step_start(step.name, step.description, step.spec.get("inputs", {}))
+        self.ui.log_start(step.name, step.description, step.spec.get("inputs", {}))
         if not hasattr(context, "agent_config"):
             context.agent_config = {}
 
@@ -134,7 +108,7 @@ class Manager:
                 "step_ref": step,
                 "source_prompt": step.prompt,
                 "step_name": step.name,
-                "implicit_tool": step.spec.get("implicit_tool"),
+                "tool": step.spec.get("tool"),
             }
         )
 
@@ -151,22 +125,18 @@ class Manager:
             result_ctx = agent.run(context)
             result = result_ctx.get("result")
             error = result_ctx.get("error_message")
-
-            if self.ui:
-                self.ui.on_step_finish(step.name, result, error, agent.metadata)
+            self.ui.log_finish(step.name, result, error, agent.metadata)
             return result, error, agent.metadata
 
         except Exception as e:
-            if self.ui:
-                self.ui.on_step_finish(step.name, None, str(e), agent.metadata)
+            self.ui.log_finish(step.name, None, str(e), agent.metadata)
             return None, str(e), agent.metadata
 
-    def run_tool(self, step, context):
+    def run_tool(self, step, **kwargs):
         """
         Runs a deterministic Tool directly (no LLM).
         """
-        if self.ui:
-            self.ui.on_step_start(step.name, step.description, step.spec.get("args", {}))
+        self.ui.log_start(step.name, step.description, step.spec.get("args", {}))
 
         tool_name = step.tool
         start_time = datetime.now()
@@ -175,32 +145,21 @@ class Manager:
         try:
             logger.info(f"🛠️ Executing Tool: {tool_name}")
 
-            async def _call():
+            async def call():
                 async with self.client:
-                    res = await self.client.call_tool(tool_name, tool_args)
-                    if hasattr(res, "content") and res.content:
-                        return res.content[0].text
-                    return str(res)
+                    return await self.client.call_tool(tool_name, tool_args)
 
-            result = utils.run_sync(_call())
-
-            # I find this weird (I'd prefer an exit code) but agents like strings...
-            error = None
-            if "❌" in str(result) or "Error" in str(result) or "FAILED" in str(result):
-                error = result
-
-            if self.ui:
-                if hasattr(self.ui, "on_step_update"):
-                    self.ui.on_step_update(result)
-                self.ui.on_step_finish(step.name, result, error, {})
+            raw_result = utils.run_sync(call())
+            parsed = parse_tool_response(raw_result)
+            self.ui.log_update(parsed.content)
+            self.ui.log_finish(step.name, parsed.content, parsed.error_message, {})
 
             duration = (datetime.now() - start_time).total_seconds()
             meta = {"duration": duration, "tool": tool_name}
-            return result, error, meta
+            return parsed.content, parsed.error_message, meta
 
         except Exception as e:
-            if self.ui:
-                self.ui.on_step_finish(step.name, None, str(e), {})
+            self.ui.log_finish(step.name, None, str(e), {})
             return None, str(e), {}
 
     async def connect_and_validate(self):

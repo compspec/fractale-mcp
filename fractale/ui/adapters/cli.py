@@ -25,12 +25,12 @@ class CLIAdapter(UserInterface):
 
     def on_step_finish(self, name, result, error, metadata):
         if error:
-            print(f"❌ {name} Failed: {error}")
+            print(f"❌ {name} failed: '{error}'")
         else:
             print(f"✅ {name} complete.")
 
     def on_workflow_complete(self, status):
-        print(f"\n🏁 Workflow: {status}")
+        print(f"\n🏁 Workflow: '{status}'")
 
     def ask_user(self, question, options=None):
         """

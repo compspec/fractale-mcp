@@ -53,6 +53,7 @@ class LlamaBackend(LLMBackend):
         tool_outputs: List[Dict] = None,
         use_tools: bool = True,
         one_off: bool = False,
+        tools: List[str] = None,
     ) -> Tuple[str, str, List[Dict]]:
         """
         Manage history and call Llama.
@@ -60,7 +61,6 @@ class LlamaBackend(LLMBackend):
         # TODO: Implement one_off support
 
         if prompt:
-            # Llama does better with a system prompt if history is empty
             if not self.history:
                 self.history.append(
                     {
@@ -70,23 +70,46 @@ class LlamaBackend(LLMBackend):
                 )
             self.history.append({"role": "user", "content": prompt})
 
-        # Handle tool outputs
         if tool_outputs and use_tools and not self.disable_history:
             for out in tool_outputs:
+                # Ensure name matches the sanitized version sent to LLM
+                llm_name = out["name"].replace("-", "_")
                 self.history.append(
                     {
                         "role": "tool",
                         "tool_call_id": out["id"],
+                        "name": llm_name,
                         "content": str(out["content"]),
                     }
                 )
 
-        # Get tool args from base helper
-        api_args = self.select_tools(use_tools)
+        api_tools = self.tools_schema if self.tools_schema else None
+        tool_choice = "auto" if api_tools else None
+
+        if not use_tools:
+            api_tools = None
+            tool_choice = None
+        elif tools:
+            # 1. Sanitize requested names (docker-build -> docker_build)
+            target_names = [t.replace("-", "_") for t in tools if t]
+
+            # 2. Filter the schema list
+            api_tools = [t for t in self.tools_schema if t["function"]["name"] in target_names]
+
+            # 3. Determine forcing strategy
+            if len(target_names) == 1:
+                # Force specific function
+                tool_choice = {"type": "function", "function": {"name": target_names[0]}}
+            else:
+                # Force any function from the filtered list
+                tool_choice = "required"
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name, messages=self.history, **api_args
+                model=self.model_name,
+                messages=self.history,
+                tools=api_tools,
+                tool_choice=tool_choice,
             )
         except Exception as e:
             return f"LLAMA API ERROR: {str(e)}", "", []
@@ -97,7 +120,6 @@ class LlamaBackend(LLMBackend):
         if response.usage:
             self._usage = dict(response.usage)
 
-        # Store history if not disabled
         if not self.disable_history:
             self.history.append(msg)
 
@@ -109,7 +131,7 @@ class LlamaBackend(LLMBackend):
                 tool_calls.append(
                     {
                         "id": tc.id,
-                        "name": tc.function.name,
+                        "name": tc.function.name,  # This will be underscored (docker_build)
                         "args": json.loads(tc.function.arguments),
                     }
                 )

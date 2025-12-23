@@ -1,6 +1,6 @@
 import logging
 
-from jinja2 import BaseLoader, Environment
+from rich import print
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +10,10 @@ class WorkflowStateMachine:
     Dynamic State Machine execution engine.
     """
 
-    def __init__(self, states, context, callbacks):
+    def __init__(self, states, context, callbacks, ui=None):
         self.states = states
         self.context = context
+        self.ui = ui
 
         # This is manager.run_agent and manager.run_tool
         self.current_state_name = None
@@ -47,6 +48,7 @@ class WorkflowStateMachine:
             return None, True
 
         # Execute via callback function
+        print(f"Step type: {current_step.type}")
         runner = self.callbacks.get(current_step.type)
         if not runner:
             raise ValueError(f"No runner for type '{current_step.type}'")
@@ -58,33 +60,28 @@ class WorkflowStateMachine:
         # Merge into temp context for execution
         exec_context = self.context.copy()
         exec_context.update(step_inputs)
-        print(f"Running {current_step}")
         result, error, meta = runner(current_step, exec_context)
 
         # Save previous result and last error in context
         if result:
-            print("RESULT")
-            print(result)
             self.context["result"] = result
             self.context[f"{current_step.name}_result"] = result
         if error:
-            print("ERROR")
             print(error)
-        print(meta)
 
         # Always set error_message in the context
         self.context["error_message"] = error
 
         # Determine Transition
         outcome = "success" if (result and not error) else "failure"
-        print(f"outcome is {outcome}")
         next_state = current_step.transitions.get(outcome)
-        print(f"next state is {next_state}")
 
         # If explicit transition missing, default to failed
-        if not next_state:
+        if not next_state and outcome == "success":
+            next_state = "success"
+        elif not next_state and outcome == "failure":
             next_state = "failed"
-            print(f"next state is {next_state}")
+        print(f"next state is {next_state}")
 
         logger.info(f"🔀 Transition: {current_step.name} ({outcome}) -> {next_state}")
         prev_state_name = self.current_state_name
@@ -97,3 +94,21 @@ class WorkflowStateMachine:
             "metadata": meta,
             "transition": f"{outcome} -> {next_state}",
         }, False
+
+    def ask_next_step(self, step_meta):
+        """
+        Ask the user what to do next.
+        """
+        if step_meta and "failure" in step_meta.get("transition", ""):
+            if self.current_state_name == "failed":
+                if self.ui:
+                    action = self.ui.ask_user(
+                        f"Workflow Failed at '{step_meta['agent']}'.\nError: {step_meta['error']}\nRetry?",
+                        options=["retry", "quit"],
+                    )
+                    if action == "retry":
+                        self.current_state_name = step_meta["agent"]
+                        logger.warning(
+                            f"🔄 User requested retry. Rewinding to {step_meta['agent']}"
+                        )
+                    return action

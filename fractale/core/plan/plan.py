@@ -23,7 +23,9 @@ class Plan:
             self.plan_path = plan_path_or_dict
             self.raw_data = utils.read_yaml(self.plan_path)
 
+        # Validation
         self.validate_schema()
+        self.validate_transitions()
 
         # YAML List -> state graph
         self.states = self.do_compile(self.raw_data.get("steps", []))
@@ -71,3 +73,25 @@ class Plan:
     @property
     def global_inputs(self):
         return self.raw_data.get("inputs", {})
+
+    def validate_transitions(self):
+        """
+        Ensures all transition targets exist in the plan or are valid terminals.
+        """
+        steps = self.raw_data.get("steps", [])
+
+        # Get all valid destination names
+        defined_names = {s["name"] for s in steps}
+        valid_targets = defined_names.union({"success", "failed"})
+
+        # Check edges like a graph
+        for step in steps:
+            transitions = step.get("transitions", {})
+            for event, target in transitions.items():
+                if target not in valid_targets:
+                    raise ValueError(
+                        f"❌ Invalid Transition in step '{step['name']}':\n"
+                        f"   Cannot transition on '{event}' to '{target}'.\n"
+                        f"   '{target}' is not defined in the steps.\n"
+                        f"   Valid targets: {sorted(list(valid_targets))}"
+                    )

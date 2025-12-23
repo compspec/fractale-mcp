@@ -75,17 +75,39 @@ class GeminiBackend(LLMBackend):
         tool_outputs: List[Dict] = None,
         use_tools: bool = True,
         one_off: bool = False,
+        tools: List[str] = None,
     ):
         """
         Generate response from Gemini.
+
+        Args:
+            allowed_tools: A list of tool names (e.g. ["docker-build"]) to restrict the model to.
+                           If provided, the model MUST call one of these tools.
         """
+        tool_config = {}
+
         if not use_tools:
+            # Force no tools
             tool_config = {"function_calling_config": {"mode": "NONE"}}
+
+        elif tools:
+            # Force specific tools
+            # We must sanitize names (docker-build -> docker_build) to match Gemini's schema
+            sanitized_names = [t.replace("-", "_") for t in tools if t]
+
+            tool_config = {
+                "function_calling_config": {
+                    "mode": "ANY",  # 'ANY' forces the model to call a tool
+                    "allowed_function_names": sanitized_names,
+                }
+            }
         else:
+            # Let model decide freely
             tool_config = {"function_calling_config": {"mode": "AUTO"}}
+
         response = None
 
-        # Stateless one off model (not used yet)
+        # Stateless one off model
         if one_off:
             if not prompt:
                 return "", None, []
