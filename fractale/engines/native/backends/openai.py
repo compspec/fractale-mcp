@@ -46,34 +46,62 @@ class OpenAIBackend(LLMBackend):
         prompt: str = None,
         tool_outputs: List[Dict] = None,
         use_tools: bool = True,
-        one_off: bool = False,  # OpenAI doesn't natively support easy one-off without managing history manually
+        one_off: bool = False,
+        tools: List[str] = None,  # <--- NEW ARGUMENT
     ) -> Tuple[str, str, List[Dict]]:
         """
         Generate the response and update history.
         """
-        # TODO: Implement one_off logic if needed (creating temp client or copying history)
+        # TODO: Implement one_off logic
 
         if prompt:
             self.history.append({"role": "user", "content": prompt})
 
         if tool_outputs:
             for out in tool_outputs:
+                # Match name sanitization (docker-build -> docker_build)
+                llm_name = out["name"].replace("-", "_")
                 self.history.append(
-                    {"role": "tool", "tool_call_id": out["id"], "content": str(out["content"])}
+                    {
+                        "role": "tool",
+                        "tool_call_id": out["id"],
+                        "name": llm_name,
+                        "content": str(out["content"]),
+                    }
                 )
 
-        # Use helper from base class to get tool config
-        # This handles the 'auto' vs None logic
-        api_args = self.select_tools(use_tools)
+        # --- TOOL CONFIGURATION LOGIC ---
+        api_tools = self.tools_schema if self.tools_schema else None
+        tool_choice = "auto" if api_tools else None
+
+        if not use_tools:
+            api_tools = None
+            tool_choice = None
+        elif tools:
+            # 1. Sanitize requested names to match schema
+            target_names = [t.replace("-", "_") for t in tools if t]
+
+            # 2. Filter the schema list passed to the API
+            api_tools = [t for t in self.tools_schema if t["function"]["name"] in target_names]
+
+            # 3. Determine forcing strategy
+            if len(target_names) == 1:
+                # Force specific function
+                tool_choice = {"type": "function", "function": {"name": target_names[0]}}
+            else:
+                # Force any function from the filtered list
+                tool_choice = "required"
 
         response = self.client.chat.completions.create(
-            model=self.model_name, messages=self.history, **api_args
+            model=self.model_name,
+            messages=self.history,
+            tools=api_tools,
+            tool_choice=tool_choice,
         )
 
         print(response)
         msg = response.choices[0].message
 
-        # Save assistant reply to history
         self.history.append(msg)
 
         if response.usage:
@@ -85,16 +113,12 @@ class OpenAIBackend(LLMBackend):
                 tool_calls.append(
                     {
                         "id": tc.id,
-                        "name": tc.function.name,
+                        "name": tc.function.name,  # Underscored name
                         "args": json.loads(tc.function.arguments),
                     }
                 )
 
-        # OpenAI (via O1 or DeepSeek via compatible endpoints) might have reasoning_content
-        # Standard GPT-4o does not usually expose this field directly in the message object property
-        # unless using specific beta headers, but we return empty string for now.
         reasoning = getattr(msg, "reasoning_content", "")
-
         return msg.content or "", reasoning, tool_calls
 
     @property
