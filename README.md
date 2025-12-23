@@ -6,10 +6,19 @@
 
 ## Design
 
-We create a single, robust and asynchronous server that can dynamically discover and load tools of interest. Instead of multiple ports (one per tool) we serve tools on one port, given an http transport.
+We create a single, robust and asynchronous server that can dynamically discover and load tools of interest. Instead of multiple ports (one per tool) we serve tools on one port, given an http transport. The project here contains two "buckets" of assets, and they do not need to be paired together (but currently are): tools (functions, prompts, resources) and orchestration (agent frameworks and backends paired with models).
 
-- **Agents** can be driven by an agent interface. We support "native" (state machine), and (TBA) autogen and langchain.
+- **Agents** can be driven by an agent interface (engine). We support "native" (state machine), and (TBA) autogen and langchain.
 - **Plan** is the YAML manifest that any agent can read and deploy.
+- **Engines**: The orchestration engine (native state machine, langchain, autogen).
+- **tools**: server tools, prompts, and resources
+- **ui**: user interface that an engine (with a main manager) uses
+- **core**: shared assets, primarily the plan/step/config definitions
+- **routes**: server views not related to mcp.
+- **backends**: child of an engine, these are the model services (llama, openai, gemini)
+- **databases**: how to save results as we progress in a pipeline (currently we support sqlite and filesystem JSON)
+
+For the above, the engines, tools, ui, databases, and backends are interfaces.
 
 ### Tools
 
@@ -70,9 +79,7 @@ python3 examples/mcp/test_echo.py
 ### Agents
 
 The `fractale agent` command provides means to run build, job generation, and deployment agents.
-While we likely will use AutoGen and LangChain, we want to test this approach that uses a state machine.
-In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test
-doing a build:
+In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test doing a build:
 
 ```bash
 # In both terminals
@@ -88,7 +95,11 @@ export OPENAI_BASE_URL=https://my.custom.url/v1
 
 # For testing I prefer to use Gemini and their API
 export GEMINI_API_TOKEN=xxxxxxxxxx
+```
 
+Here is an example that shows usage. This first example is for a straight forward "Use these inputs to create a prompt about building containers, and choose the right tool."
+
+```bash
 # In the other, run the plan
 fractale agent ./examples/plans/build-lammps.yaml
 
@@ -96,9 +107,8 @@ fractale agent ./examples/plans/build-lammps.yaml
 fractale agent --mode cli ./examples/plans/build-lammps.yaml
 ```
 
- - `manager` agents know how to orchestrate step agents and choose between them (don't hold state, but could)
- - `step` agents are experts on doing specific tasks. This originally was an agent with specific functions to do something (e.g., docker build) and now is a generic MCP agent with a prompt that gives it context and a goal.
-
+This works very well in Google Cloud (Gemini). I am not confident our on-premises models will easily choose the right tool. Hence the next design. This design is more controlled.
+It says "Generate this prompt to derive a Dockerfile, but then explicitly provide the input to the docker_build tool."
 The initial design of `helper` agents from the first fractale is subsumed by the idea of an MCP function. A helper agent _is_ an MCP tool.
 
 The design is simple in that each agent is responding to state of error vs. success. In the [first version](https://github.com/compspec/fractale) of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. It has the same top level design with a manager, but each step agent is like a small state machine governed by an LLM with access to MCP tools and resources.
@@ -107,8 +117,8 @@ See [examples/agent](examples/agent) for an example, along with observations, re
 
 #### TODO
 
+- We will need, for on-premises models, a setup where we *choose* the tool. Gemini is so good it doesn't need this so I'm not developing it yet.
 - refactor examples
-- debug why the startup is so slow.
 
 ### Design Choices
 

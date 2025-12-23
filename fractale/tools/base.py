@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Callable, List
 
 
@@ -9,7 +9,6 @@ class BaseTool(ABC):
     Each tool can provision prompts, resources, or tools.
     """
 
-    @abstractmethod
     def setup(self):
         pass
 

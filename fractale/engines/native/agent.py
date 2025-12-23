@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -10,10 +11,26 @@ from rich import print
 import fractale.engines.native.backends as backends
 import fractale.utils as utils
 from fractale.core.config import ModelConfig
+from fractale.engines.native.result import parse_tool_response
 from fractale.logger import logger
 
 
-class WorkerAgent:
+class AgentBase:
+    def init(self):
+        """
+        Setup the mcp client for the state machine. We use
+        the streaming http transport from fastmcp.
+        """
+        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
+        token = os.environ.get("FRACTALE_MCP_TOKEN")
+        url = f"http://127.0.0.1:{port}/mcp"
+
+        headers = {"Authorization": token} if token else None
+        transport = StreamableHttpTransport(url=url, headers=headers)
+        self.client = Client(transport)
+
+
+class WorkerAgent(AgentBase):
     """
     A standalone worker for the Native Engine.
     Executes a single step using FastMCP + LLM Backend.
@@ -42,7 +59,7 @@ class WorkerAgent:
         Main entry point called by the Manager.
         Synchronous wrapper around the async execution loop.
         """
-        logger.info(f"▶️  '{self.name}' starting...")
+        self.ui.log(f"▶️  '{self.name}' starting...")
         start_time = time.time()
         self.metadata["status"] = "running"
 
@@ -59,7 +76,7 @@ class WorkerAgent:
         except Exception as e:
             self.metadata["status"] = "failed"
             context.error_message = str(e)
-            logger.error(f"Worker '{self.name}' failed: {e}")
+            self.ui.log(f"Worker '{self.name}' failed: {e}")
             raise e
 
         finally:
@@ -74,7 +91,7 @@ class WorkerAgent:
         start_exec = time.time()
 
         # Setup fastmcp client and choose a backend
-        self.init_mcp_client()
+        self.init()
         self.init_backend(context)
 
         async with self.client:
@@ -94,19 +111,6 @@ class WorkerAgent:
 
         self.record_usage(time.time() - start_exec)
         return response
-
-    def init_mcp_client(self):
-        """
-        Setup the mcp client for the state machine. We use
-        the streaming http transport from fastmcp.
-        """
-        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
-        token = os.environ.get("FRACTALE_MCP_TOKEN")
-        url = f"http://127.0.0.1:{port}/mcp"
-
-        headers = {"Authorization": token} if token else None
-        transport = StreamableHttpTransport(url=url, headers=headers)
-        self.client = Client(transport)
 
     def init_backend(self, context):
         """
@@ -146,91 +150,114 @@ class WorkerAgent:
 
     async def run_loop(self, instruction, context):
         """
-        Here we are going to think -> do something -> respond.
+        Process -> Tool -> Process loop.
+        We need to return on some state of success or ultimate failure.
         """
-        # The user is allowed to set a one-off max attempts
         max_loops = context.get("max_attempts") or self.max_attempts
         loops = 0
 
+        # If tool is set, we might force the model to one tool.
+        chosen_tool = context.agent_config.get("tool")
+
+        # We can change this if/when we want to disable.
+        use_tools = True
         while loops < max_loops:
             loops += 1
+            self.ui.log(f"🧠 Loop {loops}/{max_loops}")
+            print(instruction)
 
-            # Generate some initial asset.
-            response, reason, calls = self.backend.generate_response(prompt=instruction)
+            response, reason, calls = self.backend.generate_response(
+                prompt=instruction,
+                use_tools=use_tools,
+                tools=[chosen_tool] if chosen_tool else None,
+            )
 
-            # Logging (reason, response with and without ui)
-            if reason and self.ui:
-                self.ui.log(reason)
-            if response and self.ui:
-                self.ui.log(response)
-            elif response:
-                logger.info(f"🤖 Thought: {response}")
+            self.ui.log(reason)
+            if response:
+                self.ui.log(response, do_handle=False) or logger.info(f"🤖 Thought: {response}")
 
-            # TODO: vsoch: not happy with logic here. We should be able
-            # to have calls WITH validation, not either OR.
-            # The response will either have or not have tool calls.
-            # For on-premises models, we will need better control of this.
-            # If we don't have calls, we might have an implicit validation tool request
-            # In which case, the response from above goes into the request
-            validate_tool = context.agent_config.get("validate")
-            if not calls and validate_tool:
-                tool_args = self.extract_code_block(response)
-                if tool_args:
-                    msg = f"⚡ Auto-triggering tool: {validate_tool}"
-                    if self.ui:
-                        self.ui.log(msg)
-                    else:
-                        logger.info(msg)
+            if not calls and chosen_tool:
 
-                    # TODO: do we need to update args here from user config?
-                    calls = [{"name": validate_tool, "args": tool_args, "id": validate_tool}]
+                # Try to extract arguments (usually code) from the text response
+                args = self.extract_code_block(response)
+                if args:
+                    msg = f"⚡ Auto-triggering tool: {chosen_tool}"
+                    self.ui.log(msg)
 
-            # If still no calls, we are done.
+                    # Prepare arguments.
+                    # If extraction returned a dict, use it.
+                    # If string, we might need to map it to a specific key (e.g. dockerfile)
+                    # For now, assuming extract_code_block returns the arguments structure required.
+                    calls = [{"name": chosen_tool, "args": args, "id": "implicit-val"}]
+
+            # Stopping Condition
             elif not calls:
-                logger.info("🛑 Agent finished (No tools called).")
+                self.ui.log("🛑 Agent finished (No tools called).")
                 return response
 
-            # Call tools - combination of user and agent selected.
             tool_outputs = []
-            while calls:
-                call = calls.pop(0)
+            has_global_error = False
+
+            # Process all calls (Parallel tool use support)
+            for call in calls:
                 t_name = call["name"]
                 t_args = call["args"]
-                logger.info(f"🛠️  Calling: {t_name}")
+                t_id = call.get("id")
+                self.ui.log(f"🛠️  Calling: {t_name}")
 
                 try:
-                    res = await self.client.call_tool(t_name, t_args)
-                    content = res.content[0].text if hasattr(res, "content") else str(res)
-                    # Debugging for now
-                    print(res)
+                    raw_result = await self.client.call_tool(t_name, t_args)
+                    parsed = parse_tool_response(raw_result)
+                    content = parsed.content
+
+                    if parsed.is_error:
+                        has_global_error = True
+                        if "❌" not in content and "Error" not in content:
+                            content = f"❌ ERROR: {content}"
+
                 except Exception as e:
                     content = f"❌ ERROR: {e}"
+                    has_global_error = True
 
+                # Record and UI Update
                 self.record_step(t_name, t_args, content)
-                if self.ui and hasattr(self.ui, "on_step_update"):
-                    self.ui.on_step_update(content)
+                self.ui.log_update(content)
+                tool_outputs.append({"id": t_id, "name": t_name, "content": content})
 
-                tool_outputs.append({"id": call.get("id"), "name": t_name, "content": content})
+            # If we used a specific tool, checking the result is often enough
+            if chosen_tool and not has_global_error:
+                return tool_outputs[-1]["content"]
 
-            # After a set of calls, check with the agent.
-            response, reason, calls = self.backend.generate_response(tool_outputs=tool_outputs)
+            # Otherwise, ask the LLM if we are we done
+            try:
+                # We dump the outputs into the check prompt
+                # TODO: if this isn't accurate, we should have an error code.
+                # and then fall back to this.
+                check_args = {"content": json.dumps([t["content"] for t in tool_outputs])}
+                next_instruction = await self._fetch_persona("check_finished_prompt", check_args)
 
-            # More debugging
-            if response:
-                print("💬 Response")
-                print(response)
-            # Gemini doesn't have a reason
-            # It's OK Gemini, neither do I.
-            if reason:
-                print("🙋‍♀️ Reason")
-                print(reason)
-            if calls:
-                print("☎️  Calls")
-                print(calls)
-            if response and self.ui:
-                self.ui.log(f"🤖 Thought:\n{response}")
-            if not calls:
-                return response
+                # The prompt asks the LLM to output a JSON decision
+                decision, _, _ = self.backend.generate_response(prompt=next_instruction)
+
+                # Parse decision
+                decision = json.loads(self.extract_code_block(decision))
+                print(decision)
+
+                # Return last output as result
+                if decision.get("action") == "success":
+                    return tool_outputs[-1]["content"]
+
+                # TODO this isn't implemented yet, but add if needed
+                # Loop continues with new instructions/feedback
+                if "instruction" in decision:
+                    instruction = decision["instruction"]
+                else:
+                    instruction = f"Tool outputs received:\n{json.dumps(tool_outputs)}\nProceed."
+
+            except Exception as e:
+                # Fallback if check prompt fails or doesn't exist
+                # Just feed the tool outputs back into the main loop
+                instruction = f"Tool outputs: {json.dumps(tool_outputs)}"
 
         return response
 

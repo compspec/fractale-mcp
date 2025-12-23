@@ -49,7 +49,8 @@ class LLMBackend(ABC):
         tool_outputs: List[Dict] = None,
         use_tools: bool = True,
         one_off: bool = False,
-    ) -> Tuple[str, str, List[Dict]]:
+        tools: List[str] = None,
+    ):
         """
         Returns a tuple: (text_content, reasoning_content, tool_calls)
         """
