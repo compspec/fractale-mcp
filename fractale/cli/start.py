@@ -23,7 +23,7 @@ def main(args, extra, **kwargs):
     app = FastAPI(title="Fractale MCP", lifespan=mcp_app.lifespan)
 
     # Add additional module paths (custom out of tree modules)
-    for path in args.tool:
+    for path in args.tool_module:
         print(f"🧐 Registering additional module: {path}")
         manager.register(path)
 
@@ -31,7 +31,11 @@ def main(args, extra, **kwargs):
     print(f"🔌 Loading tools... ")
 
     # Load into the manager (tools, resources, prompts)
-    for tool in manager.load_tools(mcp, args.tools):
+    for tool in manager.load_tools(mcp, args.tools, args.include, args.exclude):
+        print(f"   ✅ Registered: {tool.name}")
+
+    # Plus additional tools, prompts, resources
+    for tool in register(mcp, args):
         print(f"   ✅ Registered: {tool.name}")
 
     # Mount the MCP server. Note from V: we can use mount with antother FastMCP
@@ -50,3 +54,17 @@ def main(args, extra, **kwargs):
     # For testing we usually control+C, let's not make it ugly
     except KeyboardInterrupt:
         print("🖥️  Shutting down...")
+
+
+def register(mcp, args):
+    """
+    Register additional tools, resources, and prompts.
+    """
+    for path in args.tool:
+        yield manager.register_tool(mcp, path)
+
+    for path in args.resource:
+        yield manager.register_resource(mcp, path)
+
+    for path in args.prompt:
+        yield manager.register_prompt(mcp, path)

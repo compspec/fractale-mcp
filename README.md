@@ -6,7 +6,14 @@
 
 ## Design
 
-We create a single, robust and asynchronous server that can dynamically discover and load tools of interest. Instead of multiple ports (one per tool) we serve tools on one port, given an http transport. The project here contains two "buckets" of assets, and they do not need to be paired together (but currently are): tools (functions, prompts, resources) and orchestration (agent frameworks and backends paired with models).
+We create a robust and asynchronous server that can dynamically discover and load tools of interest. The project here initially contained two "buckets" of assets: tools (functions, prompts, resources) and orchestration (agent frameworks and backends paired with models). Those are now (for the most part) separated into modular projects, and tools are added as needed:
+
+- [flux-mcp](https://github.com/converged-computing/flux-mcp): MCP tools for Flux Framework
+- [hpc-mcp](https://github.com/converged-computing/hpc-mcp): HPC tools for a larger set of HPC and converged computing use cases.
+
+### Abstractions
+
+The library here has the following abstractions.
 
 - **Agents** can be driven by an agent interface (engine). We support "native" (state machine), and (TBA) autogen and langchain.
 - **Plan** is the YAML manifest that any agent can read and deploy.
@@ -22,7 +29,13 @@ For the above, the engines, tools, ui, databases, and backends are interfaces.
 
 ### Tools
 
-The fractale-mcp library is based on discoverability. While any installed module is probably too lenient (e.g., imagine anything on the PYTHONPATH would be found), instead we automatically discover tools with a common base class in `fractale/tools`. The developer user can easily register additional tool modules that may not be a part of fractale here. E.g.,:
+There are different means to add tools here:
+
+ - **internal** are discovered in `fractale/tools`.
+ - **external modules**: externally discovered via the same mechanism.
+ - **external one-off**: add a specific tool, prompt, or resource to a server (suggested)
+
+I am suggesting a combined approach of the first and last bullet for security. E.g., when we deploy, we do not want to open a hole to add functions that are not known. In the context of a job, we likely have a specific need or use case and can select from a library. I am developed scoped tools with this aim or goal -- to be able to deploy a job and start a server within the context of the job with exactly what is needed. Here is how the module discovery works:
 
 ```python
 from fractale.tools.manager import ToolManager
@@ -36,17 +49,6 @@ manager.register("fractale.tools")
 # Register a different module
 manager.register("mymodule.tools")
 ```
-
-Note that if you are looking for Flux-related tools, see [flux-mcp](https://github.com/converged-computing/flux-mcp).
-Tools to add:
-
- - helpers
-   - debug
-   - result parser (regular expressions)
-   - timer (agent can request to wait some N time)
- - kubernetes
-   - deploy job
-   - deploy minicluster
 
 ### Environment
 
@@ -79,15 +81,9 @@ python3 examples/mcp/test_echo.py
 ### Agents
 
 The `fractale agent` command provides means to run build, job generation, and deployment agents.
-In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test doing a build:
+In our [first version](https://github.com/compspec/fractale), an agent corresponded to a kind of task (e.g., build). For this refactored version, the concept of an agent is represented in a prompt or persona, which can be deployed by a generic MCP agent with some model backend (e.g., Gemini, Llama, or OpenAI). Let's test doing a build. You'll first need to define backends. Note that I'm primarily testing and developing with Gemini because it doesn't suck. But here is how you'd define, for example, openai.
 
 ```bash
-# In both terminals
-export FRACTALE_MCP_TOKEN=dude
-
-# In one terminal (start MCP)
-fractale start -t http --port 8089
-
 # Define the model (provider and endpoints) to use.
 export FRACTALE_LLM_PROVIDER=openai
 export OPENAI_API_KEY=xxxxxxxxxxxxxxxx
@@ -97,38 +93,72 @@ export OPENAI_BASE_URL=https://my.custom.url/v1
 export GEMINI_API_TOKEN=xxxxxxxxxx
 ```
 
-Here is an example that shows usage. This first example is for a straight forward "Use these inputs to create a prompt about building containers, and choose the right tool."
+#### Build Docker Container
+
+Here is an example that shows usage. This first example is for a straight forward "Use these inputs to create a prompt about building containers, and choose the right tool." We first need to install the functions from [hpc-mcp](https://github.com/converged-computing/hpc-mcp):
+
+```bash
+pip install hpc-mcp --break-system-packages
+```
+
+Start the server with the functions and prompt we need:
+
+```bash
+# In one terminal (start MCP)
+fractale start -t http --port 8089 \
+  --prompt hpc_mcp.t.build.docker.docker_build_persona_prompt \
+  --tool hpc_mcp.t.build.docker.docker_build_container
+```
+
+And then run the plan.
 
 ```bash
 # In the other, run the plan
 fractale agent ./examples/plans/build-lammps.yaml
 
 # It's often easier to debug with cli mode
-fractale agent --mode cli ./examples/plans/build-lammps.yaml
+fractale agent ./examples/plans/build-lammps.yaml
 ```
 
-This works very well in Google Cloud (Gemini). I am not confident our on-premises models will easily choose the right tool. Hence the next design. This design is more controlled.
-It says "Generate this prompt to derive a Dockerfile, but then explicitly provide the input to the docker_build tool."
-The initial design of `helper` agents from the first fractale is subsumed by the idea of an MCP function. A helper agent _is_ an MCP tool.
+This works very well in Google Cloud (Gemini). I am not confident our on-premises models will easily choose the right tool. Hence the next design. If you define a `tool` section in any step, that will limit the selection of the LLM to JUST the tool you are interested in. We hope that this will work.
 
 The design is simple in that each agent is responding to state of error vs. success. In the [first version](https://github.com/compspec/fractale) of our library, agents formed a custom graph. In this variant, we refactor to use MCP server tools. It has the same top level design with a manager, but each step agent is like a small state machine governed by an LLM with access to MCP tools and resources.
 
-See [examples/agent](examples/agent) for an example, along with observations, research questions, ideas, and experiment brainstorming!
+#### Flux JobSpec Translation
+
+To prototype with Flux, open the code in the devcontainer. Install the library and start a flux instance.
+
+```bash
+pip install -e . --break-system-packages
+pip install flux-mcp IPython --break-system-packages
+flux start
+```
+
+We will need to start the server and add the validation functions and prompt.
+
+```bash
+fractale start -t http --port 8089 \
+  --tool flux_mcp.validate.flux_validate_jobspec \
+  --tool flux_mcp.transformer.transform_jobspec
+```
+
+Note: I am currently working here. Next step is to write prompts for the jobspec translation. We need different ones for batch vs. canonical and then to use the manual endpoint vs. have the LLM figure it out.
 
 #### TODO
 
-- We will need, for on-premises models, a setup where we *choose* the tool. Gemini is so good it doesn't need this so I'm not developing it yet.
-- refactor examples
+- Config file to start a server (with custom set of functions).
 
 ### Design Choices
 
-Here are a few design choices (subject to change, of course). I am starting with re-implementing our fractale agents with this framework. For that, instead of agents being tied to specific functions (as classes on their agent functions) we will have separate agents that use mcp functions, prompts, and resources. I have not yet worked on the agents, but rather I'm writing our set of functions first.
+Here are a few design choices (subject to change, of course). I am starting with re-implementing our fractale agents with this framework. For that, instead of agents being tied to specific functions (as classes on their agent functions) we will have separate agents that use mcp functions, prompts, and resources.
 
-- We don't use mcp.tool (and associated functions) directly, but instead add them to the mcp manually to allow for dynamic loading.
+- Tools hosted here are internal and needed for the library. E.g, we have a prompt that allows getting a final status for an output, in case a tool does not do a good job.
+- For those hosted here, we don't use mcp.tool (and associated functions) directly, but instead add them to the mcp manually to allow for dynamic loading.
 - The function docstrings are expose to the LLM (so write good ones!)
 - We can use mcp.mount to extend a server to include others, or the equivalent for proxy.
 - We are using mcp.run, but could also use mcp.run_async
 - The backend of FastMCP is essentially starlette, so we define (and add) other routes to the server.
+
 
 
 ### Job Specifications

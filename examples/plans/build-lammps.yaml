@@ -3,7 +3,7 @@ steps:
    # The persona generates the Dockerfile
   - name: generate
     type: agent
-    prompt: "docker_build_persona"
+    prompt: "docker_build_persona_prompt"
 
     # Inputs that can be passed forward to next steps
     inputs:
