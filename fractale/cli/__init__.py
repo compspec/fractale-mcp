@@ -74,9 +74,16 @@ def get_parser():
         choices=["stdio", "http", "sse", "streamable-http"],
     )
     start.add_argument("--host", default="0.0.0.0", help="Host (defaults to 0.0.0.0)")
+    # TODO: we will want a more flexible discovery for mcp modules
     start.add_argument(
-        "--tool", action="append", help="Additional tool module paths to discover from.", default=[]
+        "--tool-module",
+        action="append",
+        help="Additional tool module paths to discover from.",
+        default=[],
     )
+    start.add_argument("--tool", action="append", help="Direct tool to import.", default=[])
+    start.add_argument("--resource", action="append", help="Direct resource to import.", default=[])
+    start.add_argument("--prompt", action="append", help="Direct prompt to import.", default=[])
     start.add_argument("--include", help="Include tags", action="append", default=None)
     start.add_argument("--exclude", help="Exclude tag", action="append", default=None)
     start.add_argument(
@@ -96,7 +103,7 @@ def get_parser():
         "plan",
         help="provide a plan to a manager",
     )
-    agent.add_argument("--mode", choices=["cli", "tui", "web"], default="tui")
+    agent.add_argument("--mode", choices=["cli", "tui", "web"], default="cli")
     agent.add_argument("--engine", choices=["native", "langchain", "autogen"], default="native")
     agent.add_argument("--backend", choices=["openai", "gemini", "llama"], default="gemini")
     agent.add_argument("--database", help="URI for result storage (file://path or sqlite://path)")

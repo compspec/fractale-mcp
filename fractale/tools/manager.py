@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import os
+import re
 from pathlib import Path
 from typing import Dict
 
@@ -18,6 +19,41 @@ class ToolManager:
     def __init__(self):
         self.tools = {}
 
+    def load_function(self, tool_path):
+        """
+        Assume this is the function name provided
+        """
+        module_path, function = tool_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        return getattr(module, function)
+
+    def register_tool(self, mcp, tool_path: str):
+        """
+        Register an mcp function directly.
+        """
+        func = self.load_function(tool_path)
+        endpoint = Tool.from_function(func, name=func.__name__)
+        mcp.add_tool(endpoint)
+        return endpoint
+
+    def register_resource(self, mcp, tool_path: str):
+        """
+        Register an mcp resource directly.
+        """
+        func = self.load_function(tool_path)
+        endpoint = Resource.from_function(func, name=func.__name__)
+        mcp.add_resource(endpoint)
+        return endpoint
+
+    def register_prompt(self, mcp, tool_path: str):
+        """
+        Register an mcp resource directly.
+        """
+        func = self.load_function(tool_path)
+        endpoint = Prompt.from_function(func, name=func.__name__)
+        mcp.add_prompt(endpoint)
+        return endpoint
+
     def register(self, module_name: str = "fractale.tools"):
         """
         Discover and register tools from a module path.
@@ -29,7 +65,11 @@ class ToolManager:
         """
         # This needs to fail if we can't find it.
         module = importlib.import_module(module_name)
-        root_path = Path(module.__path__._path[0]).resolve()
+        if isinstance(module.__path__, list):
+            root_path = Path(module.__path__[0]).resolve()
+        # NamespacePath
+        else:
+            root_path = Path(module.__path__._path[0]).resolve()
         self.tools.update(self.discover_tools(root_path, module_name))
 
     def discover_tools(self, root_path: str, module_path: str) -> Dict[str, Path]:
@@ -61,12 +101,14 @@ class ToolManager:
             discovered[tool_id] = {"path": file_path, "module": import_path, "root": root_path}
         return discovered
 
-    def load_tools(self, mcp, names=None):
+    def load_tools(self, mcp, names=None, include=None, exclude=None):
         """
         Load a set of named tools, or default to all those discovered.
         """
         # If no tools are selected... select all tools discovered
         names = names or self.tools
+        include = "(%s)" % "|".join(include) if include else None
+        exclude = "(%s)" % "|".join(exclude) if exclude else None
 
         to_load = {}
         for name in names:
@@ -78,6 +120,12 @@ class ToolManager:
 
         # Load and Register a tool module
         for name in to_load:
+
+            # Inclusion and exclusion
+            if include and not re.search(include, name):
+                continue
+            if exclude and re.search(exclude, name):
+                continue
 
             # This is a tool instance. A tool instance can have 1+ functions
             instance = self.load_tool(name)
@@ -124,7 +172,7 @@ class ToolManager:
             module = importlib.import_module(relative_module)
 
             # Find the class that inherits from BaseTool
-            for name, obj in inspect.getmembers(module):
+            for _, obj in inspect.getmembers(module):
                 if inspect.isclass(obj) and issubclass(obj, BaseTool) and obj is not BaseTool:
 
                     # Instantiate
