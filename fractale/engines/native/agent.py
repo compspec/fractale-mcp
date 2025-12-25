@@ -11,6 +11,7 @@ from rich import print
 import fractale.engines.native.backends as backends
 import fractale.utils as utils
 from fractale.core.config import ModelConfig
+from fractale.engines.native.context import get_context
 from fractale.engines.native.result import parse_tool_response
 from fractale.logger import logger
 
@@ -102,8 +103,11 @@ class WorkerAgent(AgentBase):
 
             # Derive the persona (prompt) from mcp server.
             context_data = getattr(context, "data", context)
-            prompt_args, _ = self.step.partition_inputs(context_data)
+            prompt_args, remainder = self.step.partition_inputs(context_data)
             instruction = await self._fetch_persona(prompt_name, prompt_args)
+
+            # Since we are moving between steps, add the context
+            instruction += self.add_context(instruction, remainder)
 
             # Once we get here, we have a specific instruction (with a persona)
             # And we want to allow the agent to work on the task in a loop
@@ -111,6 +115,31 @@ class WorkerAgent(AgentBase):
 
         self.record_usage(time.time() - start_exec)
         return response
+
+    def add_context(self, instruction, context_dict):
+        """
+        Appends the Blackboard variables to the system prompt so the LLM knows the state of the world.
+        """
+        if not context_dict:
+            return instruction
+
+        info = "\n\n### SHARED CONTEXT\n"
+        info += "The following variables are available from previous steps:\n\n"
+
+        for k, v in context_dict.items():
+            # Skip system keys if any leaked through
+            if k.startswith("_") and k != "_previous_result":
+                continue
+
+            # Format value nicely
+            if isinstance(v, (dict, list)):
+                val_str = json.dumps(v, indent=2)
+            else:
+                val_str = str(v)
+
+            info += f"- **{k}**: {val_str}\n"
+
+        return instruction + info
 
     def init_backend(self, context):
         """
@@ -154,13 +183,18 @@ class WorkerAgent(AgentBase):
         We need to return on some state of success or ultimate failure.
         """
         max_loops = context.get("max_attempts") or self.max_attempts
+        step = context.agent_config["step_ref"]
         loops = 0
 
-        # If tool is set, we might force the model to one tool.
-        chosen_tool = context.agent_config.get("tool")
+        # Are we allowed to use tools?
+        use_tools = step.allow_tools
 
-        # We can change this if/when we want to disable.
-        use_tools = True
+        # If tool is set, we might force the model to one tool.
+        # Obviously the use_tools needs to be true here.
+        chosen_tool = context.agent_config.get("tool")
+        if chosen_tool:
+            use_tools = False
+
         while loops < max_loops:
             loops += 1
             self.ui.log(f"🧠 Loop {loops}/{max_loops}")

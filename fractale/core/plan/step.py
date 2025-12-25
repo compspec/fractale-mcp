@@ -66,6 +66,14 @@ class Step:
         return self.spec.get("prompt")
 
     @property
+    def allow_tools(self):
+        """
+        If False, the Agent is forbidden from calling tools.
+        It must generate text/code.
+        """
+        return self.spec.get("allow_tools", True)
+
+    @property
     def validate(self):
         return self.spec.get("validate")
 

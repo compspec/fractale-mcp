@@ -31,6 +31,7 @@ plan_schema = {
                     "prompt": {"type": "string"},
                     # Tool specific
                     "tool": {"type": "string"},
+                    "allow_tools": {"type": "boolean", "default": True},
                     "args": {"type": "object"},
                     "description": {"type": "string"},
                     "inputs": {"type": "object", "additionalProperties": True},

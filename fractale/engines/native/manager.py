@@ -132,7 +132,7 @@ class Manager(AgentBase):
             self.ui.log_finish(step.name, None, str(e), agent.metadata)
             return None, str(e), agent.metadata
 
-    def run_tool(self, step, **kwargs):
+    def run_tool(self, step, context=None):
         """
         Runs a deterministic Tool directly (no LLM).
         """
@@ -140,7 +140,7 @@ class Manager(AgentBase):
 
         tool_name = step.tool
         start_time = datetime.now()
-        tool_args = step.spec.get("args", {})
+        tool_args = utils.resolve_templates(step.spec.get("args", {}), context)
 
         try:
             logger.info(f"🛠️ Executing Tool: {tool_name}")
