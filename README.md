@@ -129,7 +129,7 @@ The design is simple in that each agent is responding to state of error vs. succ
 To prototype with Flux, open the code in the devcontainer. Install the library and start a flux instance.
 
 ```bash
-pip install -e . --break-system-packages
+pip install -e .[all] --break-system-packages
 pip install flux-mcp IPython --break-system-packages
 flux start
 ```
@@ -139,10 +139,22 @@ We will need to start the server and add the validation functions and prompt.
 ```bash
 fractale start -t http --port 8089 \
   --tool flux_mcp.validate.flux_validate_jobspec \
-  --tool flux_mcp.transformer.transform_jobspec
+  --prompt flux_mcp.validate.flux_validate_jobspec_persona \
+  --tool flux_mcp.transformer.transform_jobspec \
+  --prompt flux_mcp.transformer.transform_jobspec_persona
 ```
 
-Note: I am currently working here. Next step is to write prompts for the jobspec translation. We need different ones for batch vs. canonical and then to use the manual endpoint vs. have the LLM figure it out.
+In another terminal.
+
+```bash
+# use a manual endpoint to translate jobspec and validate
+fractale agent ./examples/plans/transform-jobspec-manual.yaml
+
+# ask the llm to do it... (does a much better job!)
+fractale agent ./examples/plans/transform-jobspec.yaml
+```
+
+I think we have enough now to put together a simple dataset to test. We will need to use a database backend to save step results, and then be able to parse easily. I will want to test this first. I don't think we will need the manual approach.
 
 #### TODO
 

@@ -1,6 +1,9 @@
+import json
 import logging
 
 from rich import print
+
+import fractale.utils as utils
 
 logger = logging.getLogger(__name__)
 
@@ -53,24 +56,18 @@ class WorkflowStateMachine:
         if not runner:
             raise ValueError(f"No runner for type '{current_step.type}'")
 
-        # TODO: vsoch: do we want Jinja inputs here?
-        step_inputs = current_step.spec.get("inputs", {})
-        print(step_inputs)
-
         # Merge into temp context for execution
+        step_inputs = utils.resolve_templates(current_step.spec.get("inputs", {}), self.context)
         exec_context = self.context.copy()
         exec_context.update(step_inputs)
         result, error, meta = runner(current_step, exec_context)
 
+        # Ensure any rendering (jinja2) is carried forward to inputs
+        self.update_context(current_step.name, result, error)
+
         # Save previous result and last error in context
-        if result:
-            self.context["result"] = result
-            self.context[f"{current_step.name}_result"] = result
         if error:
             print(error)
-
-        # Always set error_message in the context
-        self.context["error_message"] = error
 
         # Determine Transition
         outcome = "success" if (result and not error) else "failure"
@@ -94,6 +91,28 @@ class WorkflowStateMachine:
             "metadata": meta,
             "transition": f"{outcome} -> {next_state}",
         }, False
+
+    def update_context(self, step_name, result, error):
+        """
+        Parses results and updates the context.
+        E.g., render {{ result.field }} access in Jinja2.
+        """
+        if error:
+            self.context["_last_error"] = error
+
+        if result is not None:
+            self.context["_previous_result"] = result
+
+            parsed_data = result
+            if isinstance(result, str):
+                try:
+                    parsed_data = json.loads(result)
+                except Exception:
+                    parsed_data = result
+
+            # 3. Update 'result' (The transient variable for the next step)
+            self.context["result"] = parsed_data
+            self.context[f"{step_name}_result"] = parsed_data
 
     def ask_next_step(self, step_meta):
         """
