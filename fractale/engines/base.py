@@ -1,24 +1,19 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict
+import os
 
-from fractale.plan import Plan
-from fractale.ui.base import UserInterface
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 
 
-class WorkflowEngine(ABC):
-    """
-    Abstract Base Class for any backend that can execute a Fractale Plan.
-    """
-
-    def __init__(self, plan: Plan, client: "FastMCPClient", ui: UserInterface = None):
-        self.plan = plan
-        self.client = client  # Access to MCP tools
-        self.ui = ui
-
-    @abstractmethod
-    async def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
+class AgentBase:
+    def init(self):
         """
-        Execute the plan.
-        Returns the final context/results.
+        Setup the mcp client for the state machine. We use
+        the streaming http transport from fastmcp.
         """
-        pass
+        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
+        token = os.environ.get("FRACTALE_MCP_TOKEN")
+        url = f"http://127.0.0.1:{port}/mcp"
+
+        headers = {"Authorization": token} if token else None
+        transport = StreamableHttpTransport(url=url, headers=headers)
+        self.client = Client(transport)

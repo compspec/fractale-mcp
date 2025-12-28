@@ -12,7 +12,7 @@ def get_engine(plan, engine="native", backend="gemini", ui=None, max_attempts=5,
 
     # State machine orchestration
     if engine == "native":
-        from fractale.engines.native.manager import Manager
+        from fractale.engines.native.engine import Manager
 
     elif engine == "langchain":
         # TODO: vsoch
@@ -21,7 +21,5 @@ def get_engine(plan, engine="native", backend="gemini", ui=None, max_attempts=5,
         raise NotImplementedError("LangChain engine not installed")
 
     elif engine == "autogen":
-        # TODO: vsoch
-        # from fractale.engines.autogen.manager import Manager
-        raise NotImplementedError("LangChain engine not installed")
+        from fractale.engines.autogen.engine import Manager
     return Manager(plan=plan, backend=backend, ui=ui, max_attempts=max_attempts, database=database)

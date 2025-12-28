@@ -2,11 +2,11 @@ import os
 from datetime import datetime
 
 import fractale.utils as utils
+from fractale.core.context import get_context
 from fractale.engines.native.result import parse_tool_response
 from fractale.logger import logger
 
 from .agent import AgentBase, WorkerAgent
-from .context import get_context
 from .state_machine import WorkflowStateMachine
 
 
