@@ -112,6 +112,8 @@ fractale start -t http --port 8089 \
 
 And then run the plan.
 
+**State Machine**
+
 ```bash
 # In the other, run the plan
 fractale agent ./examples/plans/build-lammps.yaml
@@ -119,6 +121,17 @@ fractale agent ./examples/plans/build-lammps.yaml
 # It's often easier to debug with cli mode
 fractale agent ./examples/plans/build-lammps.yaml
 ```
+
+**AutoGen**
+
+Note: the agent here would stop after generating the file and does NOT build.
+I added an extra "instruction" that says it MUST choose a tool to build the container.
+
+```bash
+# In the other, run the plan
+fractale agent --engine autogen ./examples/plans/build-lammps.yaml
+```
+
 
 This works very well in Google Cloud (Gemini). I am not confident our on-premises models will easily choose the right tool. Hence the next design. If you define a `tool` section in any step, that will limit the selection of the LLM to JUST the tool you are interested in. We hope that this will work.
 
@@ -144,6 +157,8 @@ fractale start -t http --port 8089 \
   --prompt flux_mcp.transformer.transform_jobspec_persona
 ```
 
+**State Machine**
+
 In another terminal.
 
 ```bash
@@ -154,7 +169,42 @@ fractale agent ./examples/plans/transform-jobspec-manual.yaml
 fractale agent ./examples/plans/transform-jobspec.yaml
 ```
 
+**AutoGen**
+
+```bash
+# use a manual endpoint to translate jobspec and validate
+fractale agent --engine autogen ./examples/plans/transform-jobspec-manual.yaml
+
+# ask the llm to do it... (does a much better job!)
+fractale agent --engine autogen ./examples/plans/transform-jobspec.yaml
+```
+
+## Next Steps
+
+### LangChain
+
+This is the last backend to add, for comparison.
+
+### Experiments
+
 I think we have enough now to put together a simple dataset to test. We will need to use a database backend to save step results, and then be able to parse easily. I will want to test this first. I don't think we will need the manual approach.
+This is the generic idea I had when I was falling asleep:
+
+> Make units of job change and figure out how impactful to outcome. Need flexible workload that can adapt to different resources and means to measure how different (what is ideal outcome or outcomes?)
+
+Reading this after I'm awake, I think the general idea is that we want:
+
+1. A dataset of Slurm and Flux jobspecs, a combination of "from the wild" and "complex we made them"
+2. A task that does the translation, for each orchestrator.
+3. An ability to test running the final jobspec
+  - we would also need to be able to quantify the result of the generation. E.g., generated vs. validated, etc.
+4. An ability to asses different kinds of change and outcomes. E.g.,:
+ - The times / figures of merit were "this different"
+ - looking at process binding
+ - looking at other metrics (we might be able to use eBPF)
+
+If Slurm has an operator that isn't terrible to deploy, we could test there. Otherwise, I have a simple Slurm Operator we can use.
+
 
 #### TODO
 
@@ -162,43 +212,17 @@ I think we have enough now to put together a simple dataset to test. We will nee
 
 ### Design Choices
 
-Here are a few design choices (subject to change, of course). I am starting with re-implementing our fractale agents with this framework. For that, instead of agents being tied to specific functions (as classes on their agent functions) we will have separate agents that use mcp functions, prompts, and resources.
+Here are a few design choices (subject to change, of course). I am starting with re-implementing our fractale agents with this framework. For that, instead of agents being tied to specific functions (as classes on their agent functions) we will have a flexible agent class that changes function based on a chosen prompt. It will use mcp functions, prompts, and resources. In addition:
 
+- Each framework is (globally) an "engine" and this means the `Manager` class for each is under engine.py, since that is the entity running the show.
 - Tools hosted here are internal and needed for the library. E.g, we have a prompt that allows getting a final status for an output, in case a tool does not do a good job.
 - For those hosted here, we don't use mcp.tool (and associated functions) directly, but instead add them to the mcp manually to allow for dynamic loading.
+- Tools that are more general are provided under extral libraries (e.g., flux-mcp and hpc-mcp)
 - The function docstrings are expose to the LLM (so write good ones!)
-- We can use mcp.mount to extend a server to include others, or the equivalent for proxy.
-- We are using mcp.run, but could also use mcp.run_async
+- We can use mcp.mount to extend a server to include others, or the equivalent for proxy (I have not tested this yet).
+- Async is annoying but I'm using it. This means debugging is largely print statements and not interactive.
 - The backend of FastMCP is essentially starlette, so we define (and add) other routes to the server.
 
-
-
-### Job Specifications
-
-#### Simple
-
-We provide a simple translation layer between job specifications. We take the assumption that although each manager has many options, the actual options a user would use is a much smaller set, and it's relatively straight forward to translate (and have better accuracy).
-
-See [examples/transform](examples/transform) for an example.
-
-#### Complex
-
-We want to:
-
-1. Generate software graphs for some cluster (fluxion JGF) (this is done with [compspec](https://github.com/compspec/compspec)
-2. Register N clusters to a tool (should be written as a python module)
-3. Tool would have ability to select clusters from resources known, return
-4. Need graphical representation (json) of each cluster - this will be used with the LLM inference
-
-See [examples/fractale](examples/fractale) for a detailed walk-through of the above.
-
-For graph tool:
-
-```bash
-conda install -c conda-forge graph-tool
-```
-
-<!-- ⭐️ [Documentation](https://compspec.github.io/fractale) ⭐️ -->
 
 ## License
 

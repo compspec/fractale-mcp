@@ -4,6 +4,7 @@ steps:
   - name: generate
     type: agent
     prompt: "docker_build_persona_prompt"
+    instruction: You MUST choose a tool to build the dockerfile and verify success.
 
     # Inputs that can be passed forward to next steps
     inputs:
@@ -11,8 +12,5 @@ steps:
       container: "ghcr.io/converged-computing/lammps:latest"
       environment: "Ubuntu 24.04"
 
-    # This is the simplest case. The prompt above should generate
-    # the input, and the agent SHOULD call a tool for building.
-    # A successful output of that should finish the workflow.
     transitions:
       failed: generate

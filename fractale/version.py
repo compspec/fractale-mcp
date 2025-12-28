@@ -27,4 +27,16 @@ INSTALL_REQUIRES = (
 OPENAI_REQUIRES = (("openai", {"min_version": None}),)
 GOOGLE_REQUIRES = (("google-genai", {"min_version": None}),)
 TESTS_REQUIRES = (("pytest", {"min_version": "4.6.2"}),)
-INSTALL_REQUIRES_ALL = INSTALL_REQUIRES + TESTS_REQUIRES + GOOGLE_REQUIRES + OPENAI_REQUIRES
+
+# The amount of deps / libs here is absolutely ridiculous.
+AUTOGEN_REQUIRES = (
+    ("ag2[openai]", {"min_version": None}),
+    ("ag2[gemini]", {"min_version": None}),
+    ("google-genai", {"min_version": None}),
+    ("vertexai", {"min_version": None}),
+)
+
+
+INSTALL_REQUIRES_ALL = (
+    INSTALL_REQUIRES + TESTS_REQUIRES + GOOGLE_REQUIRES + OPENAI_REQUIRES + AUTOGEN_REQUIRES
+)

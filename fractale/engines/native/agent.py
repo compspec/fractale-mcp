@@ -1,34 +1,16 @@
 import json
-import os
 import re
 import time
 
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 from rich import print
 
 # Native Engine Imports
 import fractale.engines.native.backends as backends
 import fractale.utils as utils
 from fractale.core.config import ModelConfig
-from fractale.engines.native.context import get_context
+from fractale.engines.base import AgentBase
 from fractale.engines.native.result import parse_tool_response
 from fractale.logger import logger
-
-
-class AgentBase:
-    def init(self):
-        """
-        Setup the mcp client for the state machine. We use
-        the streaming http transport from fastmcp.
-        """
-        port = os.environ.get("FRACTALE_MCP_PORT", "8089")
-        token = os.environ.get("FRACTALE_MCP_TOKEN")
-        url = f"http://127.0.0.1:{port}/mcp"
-
-        headers = {"Authorization": token} if token else None
-        transport = StreamableHttpTransport(url=url, headers=headers)
-        self.client = Client(transport)
 
 
 class WorkerAgent(AgentBase):
@@ -51,7 +33,7 @@ class WorkerAgent(AgentBase):
             "name": name,
             "status": "pending",
             "times": {},
-            "steps": [],  # Tool execution history
+            "steps": [],
             "llm_usage": [],
         }
 
@@ -104,7 +86,7 @@ class WorkerAgent(AgentBase):
             # Derive the persona (prompt) from mcp server.
             context_data = getattr(context, "data", context)
             prompt_args, remainder = self.step.partition_inputs(context_data)
-            instruction = await self._fetch_persona(prompt_name, prompt_args)
+            instruction = await self.fetch_persona(prompt_name, prompt_args)
 
             # Since we are moving between steps, add the context
             instruction += self.add_context(instruction, remainder)
@@ -150,7 +132,7 @@ class WorkerAgent(AgentBase):
             raise ValueError(f"Provider '{cfg.provider}' not supported.")
         self.backend = backends.BACKENDS[cfg.provider](config=cfg)
 
-    async def _fetch_persona(self, prompt_name, arguments):
+    async def fetch_persona(self, prompt_name, arguments):
         """
         Calls MCP Server to render the prompt string.
         """
@@ -169,10 +151,8 @@ class WorkerAgent(AgentBase):
             ]
             text = "\n\n".join(msgs)
 
-            # Update UI Prompt Box
-            if self.ui and hasattr(self.ui, "on_set_prompt"):
-                self.ui.on_set_prompt(text)
-
+            # Add user custom instruction (note does not support jinja)
+            text += self.step.spec.get("instruction") or ""
             return text
         except Exception as e:
             raise RuntimeError(f"Failed to fetch persona '{prompt_name}': {e}")
@@ -193,7 +173,7 @@ class WorkerAgent(AgentBase):
         # Obviously the use_tools needs to be true here.
         chosen_tool = context.agent_config.get("tool")
         if chosen_tool:
-            use_tools = False
+            use_tools = True
 
         while loops < max_loops:
             loops += 1
@@ -268,7 +248,7 @@ class WorkerAgent(AgentBase):
                 # TODO: if this isn't accurate, we should have an error code.
                 # and then fall back to this.
                 check_args = {"content": json.dumps([t["content"] for t in tool_outputs])}
-                next_instruction = await self._fetch_persona("check_finished_prompt", check_args)
+                next_instruction = await self.fetch_persona("check_finished_prompt", check_args)
 
                 # The prompt asks the LLM to output a JSON decision
                 decision, _, _ = self.backend.generate_response(prompt=next_instruction)
