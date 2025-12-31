@@ -132,6 +132,12 @@ I added an extra "instruction" that says it MUST choose a tool to build the cont
 fractale agent --engine autogen ./examples/plans/build-lammps.yaml
 ```
 
+**LangChain**
+
+```bash
+fractale agent --engine langchain ./examples/plans/build-lammps.yaml
+```
+
 
 This works very well in Google Cloud (Gemini). I am not confident our on-premises models will easily choose the right tool. Hence the next design. If you define a `tool` section in any step, that will limit the selection of the LLM to JUST the tool you are interested in. We hope that this will work.
 

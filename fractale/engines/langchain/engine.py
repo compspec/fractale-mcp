@@ -86,14 +86,14 @@ class Manager(AgentBase):
             lc_tools = await get_langchain_tools(self.client)
             workflow = StateGraph(Dict[str, Any])
 
-            # Add nodes to graph
+            # Add nodes
             for step_name, step in self.plan.states.items():
                 if step.type == "final":
                     continue
                 node_func = self.create_node(step, lc_tools)
                 workflow.add_node(step_name, node_func)
 
-            # Add edges to graph
+            # Add edges
             for step_name, step in self.plan.states.items():
                 if step.type == "final":
                     continue
@@ -126,10 +126,11 @@ class Manager(AgentBase):
 
                 workflow.add_conditional_edges(step_name, router, mapping)
 
-            # Run graph
+            # Run
             initial = self.plan.initial_state
             if not initial:
                 raise ValueError("No initial state found in plan")
+
             if self.plan.states.get(initial).type == "final":
                 candidates = [n for n, s in self.plan.states.items() if s.type != "final"]
                 if candidates:
@@ -145,7 +146,9 @@ class Manager(AgentBase):
         async def node_logic(state: dict):
             timer = Timer()
             with timer:
-                self.ui.on_step_start(step.name, step.description, step.inputs)
+                if self.ui:
+                    self.ui.on_step_start(step.name, step.description, step.inputs)
+
                 resolved = utils.resolve_templates(step.inputs, state)
                 state.update(resolved)
 
@@ -167,9 +170,7 @@ class Manager(AgentBase):
 
                 # Store Results
                 if result:
-                    self.ui.log(
-                        f"DEBUG [{step.name}]: Raw Result (First 100 chars): {str(result)[:100]}"
-                    )
+                    self.ui.log(f"DEBUG [{step.name}]: Raw Result: {str(result)[:100]}...")
                     state["_previous_result"] = result
                     state[f"{step.name}_result"] = result
                     state["result"] = result
@@ -178,20 +179,19 @@ class Manager(AgentBase):
                         clean_str = ""
                         if isinstance(result, str):
                             clean_str = self.extract_code_block(result)
+
                         if isinstance(clean_str, str) and (
                             clean_str.startswith("{") or clean_str.startswith("[")
                         ):
                             parsed = json.loads(clean_str)
                             if isinstance(parsed, dict):
                                 self.ui.log(
-                                    f"DEBUG [{step.name}]: Successfully parsed JSON. Keys: {list(parsed.keys())}"
+                                    f"DEBUG [{step.name}]: Parsed JSON Keys: {list(parsed.keys())}"
                                 )
                                 state.update(parsed)
                                 state["result"] = parsed
-                        else:
-                            self.ui.log(f"DEBUG [{step.name}]: Result is text, not JSON.")
                     except Exception as e:
-                        self.ui.log(f"DEBUG [{step.name}]: JSON Parsing Exception: {e}")
+                        self.ui.log(f"DEBUG [{step.name}]: JSON Parsing skipped: {e}")
 
                 if error:
                     state["_last_error"] = error
@@ -215,20 +215,18 @@ class Manager(AgentBase):
 
     def extract_code_block(self, text):
         """
-        Match block of code, assuming llm returns as markdown or code block.
+        Match block of code.
         """
-        clean_str = ""
+        if not isinstance(text, str):
+            return ""
+
         match = re.search(r"```(?:\w+)?\s*\n(.*?)\n\s*```", text, re.DOTALL)
         if match:
-            clean_str = match.group(1).strip()
-        else:
-            clean_str = text.strip()
-        return clean_str
+            return match.group(1).strip()
+
+        return text.strip()
 
     def _normalize_content(self, content):
-        """
-        Normalize content for function return.
-        """
         if isinstance(content, list):
             parts = []
             for block in content:
@@ -258,28 +256,63 @@ class Manager(AgentBase):
             except:
                 pass
 
-        if self.ui and hasattr(self.ui, "on_set_prompt"):
+        if hasattr(self.ui, "on_set_prompt"):
             self.ui.on_set_prompt(system_msg)
 
         if "llm_provider" in state:
             self.backend = state["llm_provider"]
 
         model = create_langchain_model(state)
-        if getattr(step, "allow_tools", True):
-            model = model.bind_tools(tools)
 
-        agent_executor = create_react_agent(model, tools)
+        # Filter tools if allowed_tools is specified
+        bound_tools = tools
+        allowed = step.spec.get("allowed_tools")
+        if allowed:
+            bound_tools = [t for t in tools if t.name in allowed]
+
+        if getattr(step, "allow_tools", True):
+            model = model.bind_tools(bound_tools)
+
+        agent_executor = create_react_agent(model, bound_tools)
+
         inputs = {
             "messages": [SystemMessage(content=system_msg), HumanMessage(content="Begin task.")]
         }
 
         agent_result = await agent_executor.ainvoke(inputs)
-
         messages = agent_result["messages"]
         self.ui.log(f"DEBUG [{step.name}]: Total Messages: {len(messages)}")
 
-        final_content = messages[-1].content
-        return self._normalize_content(final_content)
+        final_content = self._normalize_content(messages[-1].content)
+
+        implicit_tool_name = step.tool
+
+        if implicit_tool_name:
+            code_block = self.extract_code_block(final_content)
+
+            # If it has content, assume it's code/payload
+            if code_block and len(code_block) > 0:
+                self.ui.log(f"⚡ Intercepting code for implicit tool: {implicit_tool_name}")
+                if hasattr(self.ui, "on_step_update"):
+                    self.ui.on_step_update(f"⚡ Auto-executing {implicit_tool_name}...")
+
+                # Default capture key content or check spec
+                capture_key = step.spec.get("capture_arg", "content")
+                tool_args = {capture_key: code_block}
+
+                # Merge mapped args from the args dict in step spec
+                raw_args = step.spec.get("args", {})
+                extra_args = utils.resolve_templates(raw_args, state)
+                tool_args.update(extra_args)
+
+                try:
+                    res = await self.client.call_tool(implicit_tool_name, tool_args)
+                    tool_output = res.content[0].text if hasattr(res, "content") else str(res)
+                    return tool_output
+                except Exception as e:
+                    return f"❌ Implicit Tool Error: {e}"
+
+        return final_content
 
     async def run_tool(self, step, state):
         """
@@ -287,15 +320,17 @@ class Manager(AgentBase):
         """
         raw_args = step.spec.get("args", {})
         tool_args = utils.resolve_templates(raw_args, state)
-        logger.info(f"🛠️ LangChain Manager executing tool: {step.tool}")
+
+        self.ui.log(f"🛠️ LangChain Manager executing tool: {step.tool}")
         result = await self.client.call_tool(step.tool, tool_args)
+
         if hasattr(result, "content") and result.content:
             return result.content[0].text
         return str(result)
 
     def save_results(self, tracker):
         """
-        Save dem' results.
+        Save results.
         """
         if not self.database:
             return
