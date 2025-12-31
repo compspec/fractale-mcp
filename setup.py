@@ -70,6 +70,7 @@ if __name__ == "__main__":
     OPENAI_REQUIRES = get_reqs(lookup, "OPENAI_REQUIRES")
     LLAMA_REQUIRES = get_reqs(lookup, "OPENAI_REQUIRES")
     AUTOGEN_REQUIRES = get_reqs(lookup, "AUTOGEN_REQUIRES")
+    LANGCHAIN_REQUIRES = get_reqs(lookup, "AUTOGEN_REQUIRES")
 
     setup(
         name=NAME,
@@ -95,6 +96,7 @@ if __name__ == "__main__":
             "openai": [OPENAI_REQUIRES],
             "llama": [LLAMA_REQUIRES],
             "autogen": [AUTOGEN_REQUIRES],
+            "langchain": [LANGCHAIN_REQUIRES],
         },
         classifiers=[
             "Intended Audience :: Science/Research",

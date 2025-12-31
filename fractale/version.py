@@ -36,7 +36,19 @@ AUTOGEN_REQUIRES = (
     ("vertexai", {"min_version": None}),
 )
 
+LANGCHAIN_REQUIRES = (
+    ("langchain-core", {"min_version": None}),
+    ("langchain-openai", {"min_version": None}),
+    ("langchain-google-genai", {"min_version": None}),
+    ("langgraph", {"min_version": None}),
+)
+
 
 INSTALL_REQUIRES_ALL = (
-    INSTALL_REQUIRES + TESTS_REQUIRES + GOOGLE_REQUIRES + OPENAI_REQUIRES + AUTOGEN_REQUIRES
+    INSTALL_REQUIRES
+    + TESTS_REQUIRES
+    + GOOGLE_REQUIRES
+    + OPENAI_REQUIRES
+    + AUTOGEN_REQUIRES
+    + LANGCHAIN_REQUIRES
 )
