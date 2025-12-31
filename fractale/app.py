@@ -4,7 +4,7 @@ from fastmcp import FastMCP
 from mcp.types import Icon
 
 import fractale.version as version
-from fractale.middleware import TokenAuthMiddleware
+from fractale.middleware import MCPRequestLogger, TokenAuthMiddleware
 
 icons = [
     Icon(
@@ -35,6 +35,8 @@ auth = None
 if auth_token:
     auth = TokenAuthMiddleware(auth_token)
     mcp.add_middleware(auth)
+
+mcp.add_middleware(MCPRequestLogger())
 
 
 def init_mcp(exclude_tags=None, include_tags=None, mask_error_details=False):
