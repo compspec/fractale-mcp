@@ -179,11 +179,15 @@ fractale agent --engine autogen ./examples/plans/transform-jobspec-manual.yaml
 fractale agent --engine autogen ./examples/plans/transform-jobspec.yaml
 ```
 
+**LangChain**
+
+```bash
+# TODO need to distinguish tool (manual) vs auto (should call)
+fractale agent --engine langchain ./examples/plans/transform-jobspec-manual.yaml
+fractale agent --engine langchain ./examples/plans/transform-jobspec.yaml
+```
+
 ## Next Steps
-
-### LangChain
-
-This is the last backend to add, for comparison.
 
 ### Experiments
 
